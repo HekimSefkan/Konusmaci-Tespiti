@@ -29,7 +29,7 @@ data/
 ## 3. Ses dosyaları nerede?
 
 - Kırpılmış örnek sesler ekibin ortak Drive klasöründe durur: **`BilgisayarTasarim_Proje68/Hafta2/ornek_ses/`**. Kenar durum dosyaları aynı klasörün altında, `edge/` içindedir.
-- Drive bağlantısı: **[Drive linki eklenecek]**
+- Drive bağlantısı: <https://drive.google.com/drive/folders/1zR0s5wEpKxUicSy4hBGeFZljpCZtpA5G?usp=drive_link>
 - **Aynı dosyaları kendiniz üretmek için:** `voxconverse_dev_wav.zip` dosyasını Drive'daki `veri_kaynak/` klasöründen ya da resmi sayfadan edinin. VoxConverse deposunu klonlayıp aşağıdaki komutları çalıştırın. Yollar parametre olarak verilir; `<...>` kısımlarını kendi yollarınızla değiştirin.
 
 ```bash
