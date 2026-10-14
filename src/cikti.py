@@ -7,6 +7,8 @@ import numpy as np
 def segmentleri_birlestir(
     pencereler: list[tuple[float, float]],
     etiketler: np.ndarray,
+    ada_esik_sn: float = 1.0,
+    bosluk_sn: float = 0.3,
 ) -> list[tuple[float, float, str]]:
     """Pencere etiketlerini konuşmacı segmentlerine çevirir.
 
@@ -14,7 +16,10 @@ def segmentleri_birlestir(
            etiketler np.ndarray (N,), int (N == len(pencereler)).
     Çıktı: [(bas_sn, bit_sn, "spkNN")], zamana göre sıralı. Ardışık aynı etiketli
            pencereler birleşir; örtüşen farklı etiketli pencerelerde sınır
-           örtüşmenin ortasıdır. Etiketler konuşma süresine göre azalan sırada
+           örtüşmenin ortasıdır. Süresi ada_esik_sn'den kısa ve iki yanı aynı
+           etiketli koşular komşu etikete katılır (KG-10). Aynı etiketli ve
+           aralarındaki boşluk <= bosluk_sn olan segmentler birleşir (KG-11).
+           Etiketler konuşma süresine göre azalan sırada
            spk00, spk01, ... diye yeniden adlandırılır.
     Hata: ValueError (uzunluklar eşit değil).
     """
@@ -55,8 +60,9 @@ def rttm_oku(yol: str) -> list[tuple[float, float, str]]:
 
 
 def tablo_yazdir(segmentler: list[tuple[float, float, str]]) -> str:
-    """Segmentleri okunabilir metin tablosuna çevirir (başlangıç, bitiş, süre, konuşmacı).
+    """Segmentleri okunabilir metin tablosuna çevirir (KG-14).
 
-    Girdi: segmentler. Çıktı: çok satırlı str (süreler saniye, 2 ondalık).
+    Girdi: segmentler. Çıktı: çok satırlı str; sütunlar Konuşmacı | Başlangıç |
+    Bitiş | Süre, zamanlar dd:ss.mmm; altında konuşmacı başına toplam süre ve yüzde.
     """
     raise NotImplementedError

@@ -63,26 +63,27 @@ vektorler(ses: np.ndarray, sr: int, pencereler: list[tuple[float, float]], yonte
 ### 3.4 `src/kumeleme.py` (sahibi: Cevat)
 
 ```python
-kumele(X: np.ndarray, konusmaci_sayisi: int | None = None) -> np.ndarray
+kumele(X: np.ndarray, konusmaci_sayisi: int | None = None, esik: float | None = None) -> np.ndarray
 ```
-- `X`: `(N, D)`, `float32`. `konusmaci_sayisi`: biliniyorsa verilir, `None` ise otomatik kestirilir.
+- Yöntem: ortalama bağlantılı AHC, kosinüs mesafesi (gerekçe: Hafta2 C-4 bölümü).
+- `X`: `(N, D)`, `float32`. `konusmaci_sayisi`: biliniyorsa verilir, `None` ise `esik` ile otomatik kestirilir (tek konuşmacıda 1 küme çıkabilir, TG-6). `esik`: kosinüs mesafesi eşiği, `None` ise `VARSAYILAN_ESIK` (VoxConverse dev üzerinde ayarlanacak, KG-3).
 - Dönüş: `(N,)` `int` etiketler (`0..K-1`). `N == 0` ise boş dizi, `N == 1` ise `[0]`.
 - Hata: `ValueError` (`X` iki boyutlu değil veya `konusmaci_sayisi < 1`).
 
 ### 3.5 `src/cikti.py` (sahibi: Cevat)
 
 ```python
-segmentleri_birlestir(pencereler: list[tuple[float, float]], etiketler: np.ndarray) -> list[tuple[float, float, str]]
+segmentleri_birlestir(pencereler: list[tuple[float, float]], etiketler: np.ndarray, ada_esik_sn: float = 1.0, bosluk_sn: float = 0.3) -> list[tuple[float, float, str]]
 degisim_noktalari(segmentler: list[tuple[float, float, str]]) -> list[float]
 rttm_yaz(segmentler: list[tuple[float, float, str]], dosya_id: str, yol: str) -> None
 rttm_oku(yol: str) -> list[tuple[float, float, str]]
 tablo_yazdir(segmentler: list[tuple[float, float, str]]) -> str
 ```
-- `segmentleri_birlestir`: ardışık aynı etiketli pencereler tek segmentte birleşir (aralarında boşluk varsa birleşmez, yani sessizlik segmente girmez). Örtüşen farklı etiketli iki pencerede sınır, örtüşmenin ortasıdır. Etiketler toplam konuşma süresine göre azalan sırada `spk00`, `spk01`, ... diye adlandırılır. Hata: `ValueError` (`len(pencereler) != len(etiketler)`).
+- `segmentleri_birlestir`: ardışık aynı etiketli pencereler tek segmentte birleşir. Örtüşen farklı etiketli iki pencerede sınır, örtüşmenin ortasıdır. Önce süresi `ada_esik_sn`'den kısa ve iki yanı aynı etiketli koşular (A-B-A) komşu etikete katılır (KG-10). Aynı etiketli iki segment arasındaki boşluk `bosluk_sn`'den (0,3 sn, VAD min. sessizlikle aynı) kısaysa birleşir; daha uzun boşluk segmente girmez (KG-11). Etiketler toplam konuşma süresine göre azalan sırada `spk00`, `spk01`, ... diye adlandırılır. Hata: `ValueError` (`len(pencereler) != len(etiketler)`).
 - `degisim_noktalari`: ardışık iki segmentin etiketi farklıysa ikincinin başlangıcı (saniye, artan). 0 veya 1 segmentte `[]`.
 - `rttm_yaz`: 10 alanlı RTTM, `SPEAKER <dosya_id> 1 <başlangıç> <süre> <NA> <NA> <etiket> <NA> <NA>`; alan 5 süredir (bitiş değil), 3 ondalık. `dosya_id` uzantısız dosya adıdır. Segment yoksa boş dosya yazar. Hata: `OSError`.
 - `rttm_oku`: dosyadaki sırayla `(bas, bit, etiket)` döner (`bit = bas + süre`). Boş dosyada `[]`. Hata: `FileNotFoundError`, `ValueError` (satır biçimi bozuk).
-- `tablo_yazdir`: başlangıç, bitiş, süre, konuşmacı sütunlu çok satırlı metin (saniye, 2 ondalık).
+- `tablo_yazdir`: `Konuşmacı | Başlangıç | Bitiş | Süre` sütunlu metin, zamanlar `dd:ss.mmm`; altında konuşmacı başına toplam süre ve yüzde (KG-14).
 
 ### 3.6 `src/degerlendirme.py` (sahibi: Sefkan)
 

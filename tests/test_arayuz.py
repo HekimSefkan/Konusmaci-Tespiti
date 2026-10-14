@@ -17,9 +17,9 @@ SOZLESME = {
         "pencerele": ["bolgeler", "pencere_sn", "kaydirma_sn"],
         "vektorler": ["ses", "sr", "pencereler", "yontem"],
     },
-    "src.kumeleme": {"kumele": ["X", "konusmaci_sayisi"]},
+    "src.kumeleme": {"kumele": ["X", "konusmaci_sayisi", "esik"]},
     "src.cikti": {
-        "segmentleri_birlestir": ["pencereler", "etiketler"],
+        "segmentleri_birlestir": ["pencereler", "etiketler", "ada_esik_sn", "bosluk_sn"],
         "degisim_noktalari": ["segmentler"],
         "rttm_yaz": ["segmentler", "dosya_id", "yol"],
         "rttm_oku": ["yol"],

@@ -12,7 +12,8 @@ from . import cikti, kumeleme, oznitelik, ses_girdi, vad
 MIN_KONUSMA_SN = 1.5  # bundan kısa toplam konuşmada uyarı verilir
 
 
-def calistir(girdi: str, cikti_yolu: str, yontem: str, konusmaci_sayisi: int | None) -> None:
+def calistir(girdi: str, cikti_yolu: str, yontem: str, konusmaci_sayisi: int | None,
+             esik: float | None = None) -> None:
     """Hattı sırayla çalıştırır ve RTTM yazar."""
     dosya_id = os.path.splitext(os.path.basename(girdi))[0]
     ses, sr = ses_girdi.ses_yukle(girdi)
@@ -26,7 +27,7 @@ def calistir(girdi: str, cikti_yolu: str, yontem: str, konusmaci_sayisi: int | N
     else:
         pencereler = oznitelik.pencerele(bolgeler)
         X = oznitelik.vektorler(ses, sr, pencereler, yontem)
-        etiketler = kumeleme.kumele(X, konusmaci_sayisi)
+        etiketler = kumeleme.kumele(X, konusmaci_sayisi, esik)
         segmentler = cikti.segmentleri_birlestir(pencereler, etiketler)
     cikti.rttm_yaz(segmentler, dosya_id, cikti_yolu)
     print(cikti.tablo_yazdir(segmentler))
@@ -39,9 +40,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("-o", "--cikti", required=True, help="çıktı .rttm yolu")
     ap.add_argument("--yontem", choices=["mfcc", "ecapa"], default="mfcc")
     ap.add_argument("--konusmaci-sayisi", type=int, default=None, help="biliniyorsa konuşmacı sayısı")
+    ap.add_argument("--esik", type=float, default=None, help="AHC kosinüs mesafesi eşiği")
     a = ap.parse_args(argv)
     try:
-        calistir(a.girdi, a.cikti, a.yontem, a.konusmaci_sayisi)
+        calistir(a.girdi, a.cikti, a.yontem, a.konusmaci_sayisi, a.esik)
     except (FileNotFoundError, ValueError) as e:
         print(f"Girdi hatası ({a.girdi}): {e}", file=sys.stderr)
         return 1
