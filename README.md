@@ -38,19 +38,18 @@ python -m src.main <girdi_ses> -o <cikti.rttm>
 ## Kurulum
 
 ### Ön koşullar
-- **Python 3.10** (3.11 ve üzeri için `requirements.txt` sürümleri test edilmemiştir)
+- **Python 3.10 veya 3.12** (64 bit). `requirements.txt` her iki sürüm için Windows ve Linux'ta hazır paketlerle (wheel) kurulur; C++ derleyici gerekmez.
 - **Git**
 - **ffmpeg** (mp3 dosyalarını okumak için)
-- Yaklaşık 3 GB boş disk alanı (torch ve model dosyaları için)
+- Yaklaşık 3 GB boş disk alanı (Windows'ta ölçülen: sanal ortam ~1,9 GB, ECAPA modeli ~0,1 GB)
 
 ### Windows
 
-1. **Python 3.10'u kurun.** python.org'dan Python 3.10 yükleyicisini indirin. Kurulum ekranında **"Add Python to PATH"** kutusunu işaretleyin.
-2. **Sürümü doğrulayın.** PowerShell açın:
+1. **Python'u kurun.** python.org'dan Python 3.10 (veya 3.12) yükleyicisini indirin. Kurulum ekranında **"Add Python to PATH"** kutusunu işaretleyin.
+2. **Sürümü doğrulayın.** PowerShell açın (3.12 kullanıyorsanız `-3.12` yazın):
    ```powershell
    py -3.10 --version
    ```
-   Çıktı `Python 3.10.x` olmalıdır.
 3. **ffmpeg'i kurun.**
    ```powershell
    winget install Gyan.FFmpeg
@@ -61,64 +60,60 @@ python -m src.main <girdi_ses> -o <cikti.rttm>
    git clone https://github.com/HekimSefkan/Konusmaci-Tespiti.git
    cd Konusmaci-Tespiti
    ```
-5. **Sanal ortam oluşturun.**
+5. **Sanal ortam oluşturun ve etkinleştirin.**
    ```powershell
-   py -3.10 -m venv venv
-   ```
-6. **Sanal ortamı etkinleştirin.**
-   ```powershell
-   venv\Scripts\activate
+   py -3.10 -m venv .venv
+   .venv\Scriptsctivate
    ```
    "Bu sistemde betik çalıştırma devre dışı" hatası alırsanız bir kez şunu çalıştırın ve tekrar deneyin:
    ```powershell
    Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
    ```
-   Etkinleşince satır başında `(venv)` görünür.
-7. **Bağımlılıkları kurun.**
+   Etkinleşince satır başında `(.venv)` görünür.
+6. **Bağımlılıkları kurun.**
    ```powershell
    python -m pip install --upgrade pip
    pip install -r requirements.txt
    ```
-   Kurulum birkaç dakika sürebilir (torch büyük bir pakettir).
-8. **Kurulumu doğrulayın.**
+   Ölçülen süre: temiz kurulum yaklaşık 10 dakika (Windows 11, Python 3.10, ev interneti; torch CPU paketi ~200 MB). Süre bağlantı hızına göre değişir.
+7. **Kurulumu doğrulayın.**
    ```powershell
-   python -c "import numpy, librosa, torch, torchaudio, speechbrain, webrtcvad, noisereduce; print('OK')"
+   python tests/kurulum_kontrol.py
    ```
-   Çıktı `OK` olmalıdır.
+   Paketlerin yüklenmesini ve küçük duman testlerini (MFCC, Silero VAD, WebRTC VAD, DER, SpeechBrain ECAPA) çalıştırır; sonunda `KURULUM: OK` yazmalıdır. İlk çalıştırmada ECAPA modeli (~85 MB) indirilir ve kullanıcı önbelleğine (`~/.cache/konusmaci-tespiti`) kaydedilir; modeli indirmeden denemek için `python tests/kurulum_kontrol.py --hizli`.
 
 ### Google Colab
 
+Colab'ın varsayılan Python'u 3.10 değil, daha yenidir (Python 3.12 veya üstü olabilir; `!python --version` ile bakın). `requirements.txt` 3.12 için doğrulanmıştır; Colab'ın gerçekte denenmesi ekipçe yapılacaktır.
+
 1. [colab.research.google.com](https://colab.research.google.com) adresinde **Yeni not defteri** açın. GPU gerekmez; varsayılan CPU çalışma zamanı yeterlidir.
-2. **Python sürümünü kontrol edin.**
-   ```python
-   !python --version
-   ```
-   Sürüm 3.10 değilse sürüm uyarıları çıkabilir; bu durumda aşağıdaki Notlar bölümüne bakın.
-3. **Depoyu indirin.**
+2. **Depoyu indirin.**
    ```python
    !git clone https://github.com/HekimSefkan/Konusmaci-Tespiti.git
    %cd Konusmaci-Tespiti
    ```
-4. **ffmpeg'i kurun.**
+3. **ffmpeg'i kurun** (Colab'da genelde hazırdır).
    ```python
    !apt-get install -y ffmpeg
    ```
-5. **Bağımlılıkları kurun.**
+4. **Bağımlılıkları kurun.**
    ```python
    !pip install -r requirements.txt
    ```
-6. **Çalışma zamanını yeniden başlatın.** Kurulum bittikten sonra Colab önceden yüklü numpy gibi paketleri değiştirmiş olabilir: *Çalışma zamanı → Oturumu yeniden başlat*. Yeniden başlattıktan sonra 2–5. adımları tekrarlamanız gerekmez.
-7. **Kurulumu doğrulayın.**
+   Colab'da torch önceden kuruludur; `requirements.txt` torch'u `2.5.1` (CPU sürümü, `--extra-index-url` satırı sayesinde) olarak sabitlediği için Colab'ın torch'u bu sürümle değiştirilir. Böylece Windows ve Colab aynı sürümü kullanır. Ek dosya gerekmez.
+5. **Çalışma zamanını yeniden başlatın.** Kurulum Colab'ın önceden yüklü numpy gibi paketlerini değiştirir: *Çalışma zamanı → Oturumu yeniden başlat*. Yeniden başlattıktan sonra 2–4. adımları tekrarlamanız gerekmez.
+6. **Kurulumu doğrulayın.**
    ```python
-   import numpy, librosa, torch, torchaudio, speechbrain, webrtcvad, noisereduce
-   print("OK")
+   !python tests/kurulum_kontrol.py
    ```
+   Çıktının sonunda `KURULUM: OK` yazmalıdır.
 
 ### Notlar ve sorun giderme
 
-- **`webrtcvad` Windows'ta derleme hatası veriyor:** "Microsoft C++ Build Tools" kurun (Visual Studio Build Tools → "C++ ile masaüstü geliştirme") ve `pip install -r requirements.txt` komutunu tekrar çalıştırın.
+- **`webrtcvad`:** Artık C++ derleyici gerekmez. `requirements.txt` kaynak paket olan `webrtcvad` yerine hazır paketi olan `webrtcvad-wheels` kullanır; kodda yine `import webrtcvad` yazılır. Eski bir ortamda `webrtcvad` kuruluysa `pip uninstall webrtcvad` yapıp `pip install -r requirements.txt` komutunu tekrar çalıştırın.
 - **mp3 açılmıyor:** `ffmpeg -version` komutunun çalıştığını ve ffmpeg'in PATH'te olduğunu doğrulayın.
-- **Colab'da sürüm çakışması uyarısı:** Colab önceden yüklü paketlerle çakışma bildirebilir. Hata mesajındaki paketin sürümünü not edin, `requirements.txt` dosyasını buna göre güncelleyin ve değişikliği bu README'ye yansıtın.
-- **`ModuleNotFoundError`:** Sanal ortamın etkin olduğunu (satır başında `(venv)`) ve kurulumun hatasız bittiğini kontrol edin.
-- **SpeechBrain modeli ilk çalıştırmada indirilir.** İnternet bağlantısı gerekir; model dosyaları önbelleğe alınır.
-- **Sürüm sabitleme:** `requirements.txt` içindeki tüm sürümler `==` ile sabittir; sürümleri değiştirmeden önce kurulum testlerini yeniden çalıştırın.
+- **Colab'da sürüm çakışması uyarısı:** Colab önceden yüklü paketlerle çakışma bildirebilir (yalnızca uyarıdır, çoğu zaman çalışmayı engellemez). Sorun çıkarsa hata mesajındaki paketin sürümünü not edin, `requirements.txt` dosyasını buna göre güncelleyin ve değişikliği bu README'ye yansıtın.
+- **`ModuleNotFoundError`:** Sanal ortamın etkin olduğunu (satır başında `(.venv)`) ve kurulumun hatasız bittiğini kontrol edin.
+- **SpeechBrain modeli ilk çalıştırmada indirilir.** İnternet bağlantısı gerekir; model dosyaları önbelleğe alınır. Windows'ta modeli çağırırken `local_strategy=LocalStrategy.COPY` verin; aksi halde "Gereken ayrıcalık istemci tarafından sağlanmıyor" (WinError 1314) hatası çıkar (`tests/kurulum_kontrol.py` örnek kullanım içerir).
+- **Silero VAD ve Türkçe karakterli yol:** Windows'ta `load_silero_vad()` varsayılan modeli `Sınıf` gibi ASCII dışı yollarda açamaz; `load_silero_vad(onnx=True)` kullanın.
+- **Sürüm sabitleme:** `requirements.txt` içindeki tüm sürümler `==` ile sabittir; sürümleri değiştirmeden önce `python tests/kurulum_kontrol.py` komutunu yeniden çalıştırın.
