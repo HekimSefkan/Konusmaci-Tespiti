@@ -22,10 +22,12 @@ def calistir(girdi: str, cikti_yolu: str, yontem: str, konusmaci_sayisi: int | N
         return
     if sum(b - a for a, b in bolgeler) < MIN_KONUSMA_SN:
         warnings.warn(f"{girdi}: konuşma {MIN_KONUSMA_SN} sn'den kısa; tek konuşmacı varsayıldı")
-    pencereler = oznitelik.pencerele(bolgeler)
-    X = oznitelik.vektorler(ses, sr, pencereler, yontem)
-    etiketler = kumeleme.kumele(X, konusmaci_sayisi)
-    segmentler = cikti.segmentleri_birlestir(pencereler, etiketler)
+        segmentler = [(a, b, "spk00") for a, b in bolgeler]
+    else:
+        pencereler = oznitelik.pencerele(bolgeler)
+        X = oznitelik.vektorler(ses, sr, pencereler, yontem)
+        etiketler = kumeleme.kumele(X, konusmaci_sayisi)
+        segmentler = cikti.segmentleri_birlestir(pencereler, etiketler)
     cikti.rttm_yaz(segmentler, dosya_id, cikti_yolu)
     print(cikti.tablo_yazdir(segmentler))
     print("Değişim noktaları (sn):", cikti.degisim_noktalari(segmentler))
