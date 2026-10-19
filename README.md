@@ -23,3 +23,4 @@ Proje kapsamında ses verileri üzerindeki gürültüler temizlenecek, Mel-Freka
 ├── docs/               # Proje raporları ve literatür tarama notları
 ├── notebooks/          # Veri analizi ve testler için Jupyter Notebook dosyaları
 └── README.md           # Proje tanıtım dosyası
+```
