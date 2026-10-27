@@ -16,6 +16,7 @@ SOZLESME = {
     "src.oznitelik": {
         "pencerele": ["bolgeler", "pencere_sn", "kaydirma_sn"],
         "vektorler": ["ses", "sr", "pencereler", "yontem"],
+        "ecapa_modeli": ["onbellek"],
     },
     "src.kumeleme": {"kumele": ["X", "konusmaci_sayisi", "esik"]},
     "src.cikti": {
@@ -24,6 +25,8 @@ SOZLESME = {
         "rttm_yaz": ["segmentler", "dosya_id", "yol"],
         "rttm_oku": ["yol"],
         "tablo_yazdir": ["segmentler"],
+        "temel_araliklar": ["segmentler_ms"],
+        "tek_konusmaci_segmentleri": ["segmentler_ms"],
     },
     "src.degerlendirme": {"degerlendir": ["ref_rttm", "hyp_rttm", "collar", "tolerans_sn"]},
     "src.main": {"main": ["argv"]},
