@@ -8,7 +8,7 @@ Proje kapsamında ses verileri üzerindeki gürültüler temizlenecek, Mel-Freka
 ## Takım Üyeleri
 * **Hekim Sefkan Elik**: Veri ve Test
 * **Abdullah Şeyh Hilal**: Ön İşleme, VAD, Öznitelik ve Ortam
-* **Cevat Can Aygüler**: Kümeleme, Çıktı ve Entegrasyon (Hafta 2 takım kaptanı)
+* **Cevat Can Aygüler**: Kümeleme, Çıktı ve Entegrasyon
 
 ## Kullanılacak Teknolojiler (Planlanan)
 * **Programlama Dili:** Python
@@ -63,7 +63,7 @@ python -m src.main <girdi_ses> -o <cikti.rttm>
 5. **Sanal ortam oluşturun ve etkinleştirin.**
    ```powershell
    py -3.10 -m venv .venv
-   .venv\Scriptsctivate
+   .venv\Scripts\activate
    ```
    "Bu sistemde betik çalıştırma devre dışı" hatası alırsanız bir kez şunu çalıştırın ve tekrar deneyin:
    ```powershell
