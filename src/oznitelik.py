@@ -70,6 +70,10 @@ def ecapa_modeli(onbellek: str | None = None):
     global _ecapa
     if _ecapa is None:
         import torch
+
+        from .uyumluluk import speechbrain_hazirla
+
+        speechbrain_hazirla()  # torchaudio >= 2.9 ile speechbrain 1.0.3 içe aktarılabilsin
         from speechbrain.inference.speaker import EncoderClassifier
         from speechbrain.utils.fetching import LocalStrategy
 

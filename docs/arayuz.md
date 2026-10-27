@@ -239,6 +239,16 @@ e5_segmentleri(paket, bolgeler, pencereler, X_ecapa, X_mfcc, esik: float | None 
 - **Paket** (joblib, tek dosya): `model` (ölçekleyici içeren sklearn pipeline), `secilen_model`, `ozellik_surumu`, `ozellikler`, `baglam_k`, `baskin_oran`, `olasilik_esigi`, `min_aralik_sn`, `tolerans_sn`, `egitim_f1`, `tepe_tarama`, `uyarilar` (seçilen olasılık eşiği veya en küçük aralık ızgaranın kenarındaysa uyarı metinleri; eşik taramasındaki mantık), `cv` (aday başına `ap_ort`, `ap_std`, `katlar`), `egitim_tarihi`, `egitim_kayit_sayisi`, `egitim_cift_sayisi`, `degisim_orani`, `sklearn_surumu`, `seed`. `yukle`, özellik sürümü uyuşmazsa `ValueError` verir. Model dosyası repoya girmez.
 - **E5 (`e5_segmentleri`):** VAD bölgeleri, içlerine düşen tahmin edilmiş değişim noktalarından parçalara bölünür (VAD sınırları da segment sınırıdır). Her parçanın vektörü, merkezi parçanın içine düşen pencerelerin normalize ECAPA ortalamasıdır (hiç yoksa en yakın pencere). Parçalar `kumele(V, None, esik)` ile etiketlenir ve `segmentleri_birlestir`'den geçer. Sessizlik ve kısa konuşma kuralları `hat_segmentleri` ile aynıdır.
 
+### 3.11 `src/uyumluluk.py` (sahibi: Sefkan)
+
+```python
+speechbrain_hazirla() -> list[str]
+```
+- **Neden:** speechbrain 1.0.3, içe aktarılırken (`speechbrain/dataio/dataio.py` modül düzeyinde `check_torchaudio_backend()`) `torchaudio.list_audio_backends()` çağırır. Bu fonksiyon torchaudio 2.9'da kaldırıldı; Colab'daki torch/torchaudio 2.11 ile `import speechbrain…` `AttributeError` verir. Aynı kontrol torchaudio < 2.1 için `set_audio_backend()` çağırır.
+- **Ne yapar:** `torchaudio`'yu içe aktarır; `list_audio_backends` yoksa `["soundfile"]` döndüren, `set_audio_backend` yoksa hiçbir şey yapmayan bir fonksiyon atar. Var olan fonksiyonlara dokunmaz, tekrar çağrılabilir. Dönüş: bu çağrıda eklenen adlar. Hata: `ImportError` (torchaudio yok).
+- **Kural:** speechbrain'i içe aktaran her yer önce bunu çağırır: `oznitelik.ecapa_modeli`, `tests/kurulum_kontrol.py`, `tests/test_oznitelik.py`, defterin 1. bölümü.
+- **Etkisi yok:** speechbrain v1.0.3 kaynağında kontrol edildi: `EncoderClassifier.from_hparams` (`Fbank`, `InputNormalization`, `ECAPA_TDNN`, `CategoricalEncoder`, `Pretrainer`) ve `encode_batch` akışında başka `torchaudio` çağrısı yoktur. `torchaudio.load` yalnızca `load_audio` / `classify_file` gibi dosya yolu alan yardımcılarda geçer; hattımız sesi `soundfile`/`librosa` ile okuyup ECAPA'ya tensör verir, bunları kullanmaz.
+
 ## 4. Kenar durumlar
 
 - **Kısa dosya / kısa konuşma (1,5 sn'den az):** Hata verilmez. Uyarı yazılır, tüm konuşma tek segment sayılır, tek konuşmacı (`spk00`) atanır, çıkış kodu 0. Bu durumda `main` kümelemeyi hiç çağırmaz; VAD bölgelerinin her biri `spk00` etiketiyle doğrudan segment olur. (Ayrıca `kumele`, `N == 1` için `[0]` döner.)

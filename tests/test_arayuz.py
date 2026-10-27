@@ -60,6 +60,7 @@ SOZLESME = {
         "listeleri_oku": ["yollar"],
         "main": ["argv"],
     },
+    "src.uyumluluk": {"speechbrain_hazirla": []},
     "src.degisim_modeli": {
         "ozellikler": ["pencereler", "X_ecapa", "X_mfcc", "bolgeler", "k"],
         "cift_zamanlari": ["pencereler"],

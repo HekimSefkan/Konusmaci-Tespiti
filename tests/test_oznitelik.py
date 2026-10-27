@@ -71,6 +71,10 @@ def test_mfcc_vektorleri():
 
 def test_ecapa_vektorleri():
     pytest.importorskip("torch")
+    pytest.importorskip("torchaudio")
+    from src.uyumluluk import speechbrain_hazirla
+
+    speechbrain_hazirla()  # importorskip speechbrain'i içe aktarır: yama önce gelmeli
     pytest.importorskip("speechbrain")
     ses = _sentetik()
     p = oznitelik.pencerele([(0.0, 4.0)]) + [(3.9, 4.0)]  # farklı uzunluklar: toplu dolgu

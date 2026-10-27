@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8")  # Windows konsolunda Turkce karakter (FOG-13)
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # src.uyumluluk icin depo koku
 
 SR = 16000
 MODULLER = ["numpy", "scipy", "sklearn", "librosa", "soundfile", "torch", "torchaudio",
@@ -24,7 +25,10 @@ def sinyal(sure, genlik=0.1, seed=0):
 
 
 def import_testi():
+    from src.uyumluluk import speechbrain_hazirla
     for ad in MODULLER:
+        if ad == "speechbrain":
+            speechbrain_hazirla()  # torchaudio >= 2.9: speechbrain 1.0.3 icin eksik fonksiyonlar (docs/arayuz.md 3.11)
         importlib.import_module(ad)
 
 
@@ -50,6 +54,8 @@ def webrtc_testi():
 
 def ecapa_testi():
     import torch
+    from src.uyumluluk import speechbrain_hazirla
+    speechbrain_hazirla()
     from speechbrain.inference.speaker import EncoderClassifier
     from speechbrain.utils.fetching import LocalStrategy
     # src/oznitelik.py ile ayni kural: KT_MODEL_ONBELLEK varsa orasi (Colab: Drive), yoksa kullanici onbellegi
