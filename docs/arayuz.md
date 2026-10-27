@@ -50,6 +50,12 @@ on_isle(veri: np.ndarray, sr_girdi: int) -> np.ndarray
 ```
 - `ses_yukle`'nin okuma sonrası ön işlemesi: `veri` `(n_ornek,)` veya `(n_ornek, kanal)`; mono, 16 kHz, RMS ≈ -20 dBFS, tepe ≤ 0,99; `float32`, `(n_ornek,)`. Bellekte okunmuş sesler (ör. zip içinden, `src/toplu.py`) aynı işlemden geçsin diye açıktır. Hata: `ValueError` (boş ses, NaN/sonsuz değer, geçersiz örnekleme hızı).
 
+```python
+wav_denetle(kaynak: str | bytes, ad: str | None = None) -> float
+```
+- WAV (RIFF) başlığını standart kütüphaneyle (`struct`) denetler, başlıktaki süreyi (sn) döndürür. `kaynak`: dosya yolu veya dosyanın baytları (zip içinden okunan WAV). `ses_yukle` her `.wav` dosyasında, `toplu.SesKaynagi` her zip kaydında okumadan önce çağırır; soundfile kesik dosyayı hata vermeden kısaltıp okuduğu için bu denetim gereklidir (Hafta 4 duman testi: `bozuk_yarim.wav` çıkış 0 veriyordu).
+- `ValueError` (mesajda dosya adı): RIFF/WAVE imzası yok; `fmt` veya `data` bölümü yok ya da `data` `fmt`'den önce; `fmt` alanları geçersiz (kanal / örnekleme hızı / blok hizası 0, blok hizası kanal × örnek genişliğiyle uyuşmuyor); `data`'dan önceki bir bölüm dosya sonunu aşıyor; **`data` bölümünün bildirdiği boyut dosyada kalan bayttan bir örnek çerçevesinden (blok hizası) fazla büyük** (yarıda kesilmiş dosya; mesajda başlıktaki ve gerçek süre).
+
 ### 3.2 `src/vad.py` (sahibi: Abdullah)
 
 ```python
@@ -74,6 +80,14 @@ vektorler(ses: np.ndarray, sr: int, pencereler: list[tuple[float, float]], yonte
 ecapa_modeli(onbellek: str | None = None) -> EncoderClassifier
 ```
 - ECAPA modelini bir kez yükler, modülde saklar ve döndürür. Model klasörü: `onbellek` parametresi, yoksa `KT_MODEL_ONBELLEK` ortam değişkeni, o da yoksa `~/.cache/konusmaci-tespiti/ecapa`. Colab'da modeli Drive'daki bir klasörden önceden yüklemek için kullanılır; model zaten yüklüyse `onbellek` yok sayılır.
+
+```python
+olcek_hesapla(X_listesi: list[np.ndarray]) -> dict
+olcekle(X: np.ndarray, olcek: dict | None) -> np.ndarray
+```
+- **MFCC genel standartlaştırma.** `olcek_hesapla`: verilen tüm matrislerin pencerelerinden boyut başına ortalama ve standart sapma (std alt sınırı 1e-8); dönüş `{"ortalama": [D], "std": [D], "pencere_sayisi": n}`. Hata: `ValueError` (hiç pencere yok). `olcekle`: `(X - ortalama) / std`, `float32`; `olcek` `None` ise `X` değişmez.
+- Ölçek **yalnızca eğitim yarısının** tüm MFCC pencerelerinden hesaplanır ve değerlendirme yarısında aynısı kullanılır. **Kayıt başına ortalama çıkarılmaz** (tek konuşmacılı kayıtları bölebilir). Gerekçe: c0'sız MFCC ortalama+std vektörleri ortak bir yönde toplanır, L2 normalize kosinüs mesafeleri çok küçük kalır (Hafta 4 duman testi: 0,5 eşikle her kayıtta 1 konuşmacı). Ölçek önbelleğe yazılmaz; önbellekte ham MFCC durur.
+- Uygulandığı yerler: E1/E2 kümelemesi (`esikler.json` → `mfcc_olcek`), eşik taraması (MFCC), değişim modelinin `mfcc_cos` özelliği (`degisim_modeli.joblib` → `mfcc_olcek`). `src/main.py` tek dosya komutu ölçek kullanmaz.
 
 ### 3.4 `src/kumeleme.py` (sahibi: Cevat)
 
@@ -188,7 +202,7 @@ python -m src.toplu --model-egit --zip Z --rttm-dizin R --liste L --onbellek O -
 | E4 | ECAPA | AHC, eşikle |
 | E5 | ECAPA (+ MFCC özelliği) | Değişim modeli segmentleri + AHC (ECAPA eşiğiyle) |
 
-Eşik önceliği (E2/E4/E5): `--esik` > `--esikler` dosyasındaki yöntem eşiği > `VARSAYILAN_ESIK`.
+Eşik önceliği (E2/E4/E5): `--esik` > `--esikler` dosyasındaki yöntem eşiği > `VARSAYILAN_ESIK`. E1/E2'de MFCC ölçeği `--esikler` dosyasının `mfcc_olcek` alanından okunur; yoksa ham MFCC kullanılır ve uyarı yazılır.
 
 ```python
 class SesKaynagi(zip_yol)                       # .oku(kayit) -> (ses, 16000); bağlam yöneticisi
@@ -196,8 +210,9 @@ onbellek_anahtarlari() -> dict[str, str]
 onbellek_yolu(onbellek: str, tur: str, kayit: str) -> str
 ozellik_al(kaynak, kayit, onbellek, yontemler=("mfcc", "ecapa")) -> dict
 onbellek_doldur(zip_yol, kayitlar, onbellek, yontemler=("mfcc", "ecapa"), gunluk_dizin=None, log=print) -> dict
-deney_calistir(zip_yol, rttm_dizin, kayitlar, deney, cikti_dizin, onbellek, esik=None, model_yolu=None, log=print) -> dict
-esik_tara(zip_yol, rttm_dizin, kayitlar, onbellek, yontemler=("mfcc", "ecapa"), izgara=ESIK_IZGARASI, gunluk_dizin=None, log=print) -> dict
+deney_calistir(zip_yol, rttm_dizin, kayitlar, deney, cikti_dizin, onbellek, esik=None, model_yolu=None, mfcc_olcek=None, log=print) -> dict
+esik_tara(zip_yol, rttm_dizin, kayitlar, onbellek, yontemler=("mfcc", "ecapa"), izgara=None, gunluk_dizin=None, log=print) -> dict
+yuzdelik_izgarasi(yukseklikler, n: int = 40) -> list[float]
 esikleri_yaz(yol: str, sonuc: dict) -> None
 esikleri_oku(yol: str) -> dict
 model_egit(zip_yol, rttm_dizin, kayitlar, onbellek, model_yolu, gunluk_dizin=None, log=print) -> dict
@@ -211,12 +226,13 @@ main(argv: list[str] | None = None) -> int
 - **Kayıt CSV'si** `{cikti}/<deney>.csv`, ilk beş sütun sabit: `deney, kayit, der, jer, f1`; ardından `precision, recall, tp, fp, fn, yanlis_alarm_sn, kacirilan_sn, karisiklik_sn, referans_sn, ses_sn, sure_sn`. `sure_sn` = öznitelik hesaplama süresi (önbellekte saklı) + deneyin kendi süresi. Hipotez RTTM'leri `{cikti}/<deney>/<kayit>.rttm`. CSV'de olan kayıtlar yeniden çalıştırmada atlanır. Değerlendirme `collar=0.5`, `tolerans_sn=0.5`.
 - **Özet** `{cikti}/ozet.csv` sütunları: `deney, kayit_sayisi, der, jer_ort, mikro_f1, toplam_sure_sn, toplam_ses_sn, atlanan`. `der` = Σ(yanlış alarm + kaçırılan + karışıklık) / Σ `referans_sn`; `jer_ort` NaN'lar dışarıda ortalama; `mikro_f1` Σtp/Σfp/Σfn'den. Aynı deneyin satırı yeniden çalıştırmada değiştirilir.
 - **Hatalar:** hata veren kayıt atlanır, `{cikti}/hata_gunlugu.txt` dosyasına yazılır (`--cikti-dizin` yoksa önbellek klasörüne), iş sürer.
-- **`esik_tara`:** ızgara `0,05 … 1,50` (0,05 adım, 30 değer), MFCC ve ECAPA için aynı. Bağlantı ağacı kayıt başına bir kez kurulur, her eşikte kesilir. Seçim: en düşük toplam DER, eşitlikte büyük eşik. En iyi eşik ızgaranın kenarındaysa `uyarilar` alanına yazılır. `esikler.json`: `{"mfcc": x, "ecapa": y, "tarama": [{yontem, esik, der, jer_ort, mikro_f1}], "izgara", "kayit_sayisi", "hatali", "uyarilar", "collar", "tarih"}`.
+- **`esik_tara` (veriden ızgara):** yöntem başına eğitim kayıtlarının AHC birleşme yükseklikleri (bağlantı mesafeleri) toplanır; aday eşikler bunların `YUZDELIK_SAYISI` = 40 yüzdeliğidir (`yuzdelik_izgarasi`): %1–%99 arası, `q = 100 − geomspace(99, 1, 40)` ile üst uca doğru sıklaşır, çünkü konuşmacılar arası birleşmeler her kaydın en yüksek birkaç birleşmesidir. MFCC önce genel ölçekle standartlaştırılır. Bağlantı ağacı kayıt başına bir kez kurulur, her eşikte kesilir. Seçim: en düşük toplam DER, eşitlikte büyük eşik. **En iyi eşik ızgaranın kenarına düşerse** o yönde genişletilip yeniden taranır (1. tur: %0,01–%1 veya %99–%99,99 yüzdelikleri ve en küçük yüksekliğin 0,9 katı / en büyüğün 1,01 katı; sonraki turlar: kenar değerin 0,8/0,6/0,4 veya 1,1/1,25/1,5 katı, en çok 2,0; en çok `GENISLETME_TURU` = 3 tur); her genişletme ve hâlâ kenarda kalma `uyarilar`'a yazılır. `izgara` açıkça verilirse yalnızca o değerler taranır, genişletme yapılmaz.
+- `esikler.json`: `{"mfcc": x, "ecapa": y, "mfcc_olcek": {"ortalama", "std", "pencere_sayisi"}, "tarama": [{yontem, esik, der, jer_ort, mikro_f1}], "izgara": {yontem: [...]}, "genisletme": {yontem: n}, "kayit_sayisi", "hatali", "uyarilar", "collar", "tarih"}`.
 
 ### 3.10 `src/degisim_modeli.py` (sahibi: Sefkan)
 
 ```python
-OZELLIK_SURUMU = "v1"
+OZELLIK_SURUMU = "v2"
 OZELLIKLER = ("ecapa_cos", "ecapa_baglam_cos", "ecapa_atlamali_cos", "mfcc_cos", "bosluk_sn", "ayni_bolge")
 ozellikler(pencereler, X_ecapa, X_mfcc, bolgeler, k: int = 3) -> np.ndarray          # (N-1, 6) float32
 cift_zamanlari(pencereler) -> np.ndarray                                             # (N-1,)
@@ -231,12 +247,12 @@ degisim_tahmin(paket, pencereler, X_ecapa, X_mfcc, bolgeler) -> list[float]
 bolgeleri_kes(bolgeler, degisimler) -> list[tuple[float, float]]
 e5_segmentleri(paket, bolgeler, pencereler, X_ecapa, X_mfcc, esik: float | None = None) -> list[tuple[float, float, str]]
 ```
-- **Özellikler** (ardışık pencere çifti i, i+1; sürüm `v1`, sıra sabit): `ecapa_cos` = cos(eᵢ, eᵢ₊₁); `ecapa_baglam_cos` = cos(ort(eᵢ₋ₖ₊₁..eᵢ), ort(eᵢ₊₁..eᵢ₊ₖ)), k=3, dizi sınırında kırpılır; `ecapa_atlamali_cos` = cos(eᵢ₋₁, eᵢ₊₂); `mfcc_cos` = cos(mᵢ, mᵢ₊₁); `bosluk_sn` = sᵢ₊₁ − bᵢ (negatif = örtüşme); `ayni_bolge` = iki pencerenin merkezi aynı VAD bölgesinde mi. ECAPA vektörleri L2 ile normalize edilir.
+- **Özellikler** (ardışık pencere çifti i, i+1; sürüm `v2`, sıra sabit): `ecapa_cos` = cos(eᵢ, eᵢ₊₁); `ecapa_baglam_cos` = cos(ort(eᵢ₋ₖ₊₁..eᵢ), ort(eᵢ₊₁..eᵢ₊ₖ)), k=3, dizi sınırında kırpılır; `ecapa_atlamali_cos` = cos(eᵢ₋₁, eᵢ₊₂); `mfcc_cos` = cos(mᵢ, mᵢ₊₁), m genel ölçekli MFCC (v2; v1'de ham MFCC); `bosluk_sn` = sᵢ₊₁ − bᵢ (negatif = örtüşme); `ayni_bolge` = iki pencerenin merkezi aynı VAD bölgesinde mi. ECAPA vektörleri L2 ile normalize edilir.
 - **Etiket tanımı:** her pencerenin *baskın konuşmacısı*, referans RTTM'de pencereyle en çok örtüşen konuşmacıdır (aynı konuşmacının segmentleri birleştirilerek ölçülür; eşitlikte alfabetik ilk). Baskın konuşmacı pencerenin **yarısından azını** kaplıyorsa pencere *belirsizdir* (`None`). Çift etiketi: baskın konuşmacılar farklıysa 1, aynıysa 0. Pencerelerden biri belirsizse çift eğitimden çıkarılır (`maske = False`).
 - **Değişim zamanı:** çiftin örtüşme bölgesinin ortası, `(bᵢ + sᵢ₊₁) / 2`; pencereler arasında boşluk varsa aynı formül boşluğun ortasını verir.
 - **Tepe seçme:** olasılığı eşiği geçen yerel tepeler; en yüksek olasılıklı tepe önce seçilir, seçilmiş bir tepeye `min_aralik_sn`'den yakın olanlar bastırılır.
 - **Eğitim (`egit`):** yalnızca eğitim yarısı. Adaylar: lojistik regresyon (`StandardScaler`, `class_weight="balanced"`, C ∈ {0,1; 1; 10}) ve MLP (`StandardScaler`, gizli (32) veya (64, 32), alpha ∈ {1e-4, 1e-3}, `early_stopping`). Seçim: kayıt bazında gruplu 5 katlı çapraz doğrulamada (`GroupKFold`) ortalama kesinlik (average precision); eşitlikte listede önce gelen. Seçilen model tüm eğitim yarısında yeniden eğitilir. Tepe ayarları seçilen modelin kat dışı olasılıklarıyla taranır: olasılık eşiği 0,10–0,90 (0,05 adım) × en küçük aralık {0,5; 1; 1,5; 2} sn; ölçüt ±0,5 sn toleranslı mikro değişim F1'i. Hata: `ValueError` (< 2 etiketli kayıt veya tek sınıf).
-- **Paket** (joblib, tek dosya): `model` (ölçekleyici içeren sklearn pipeline), `secilen_model`, `ozellik_surumu`, `ozellikler`, `baglam_k`, `baskin_oran`, `olasilik_esigi`, `min_aralik_sn`, `tolerans_sn`, `egitim_f1`, `tepe_tarama`, `uyarilar` (seçilen olasılık eşiği veya en küçük aralık ızgaranın kenarındaysa uyarı metinleri; eşik taramasındaki mantık), `cv` (aday başına `ap_ort`, `ap_std`, `katlar`), `egitim_tarihi`, `egitim_kayit_sayisi`, `egitim_cift_sayisi`, `degisim_orani`, `sklearn_surumu`, `seed`. `yukle`, özellik sürümü uyuşmazsa `ValueError` verir. Model dosyası repoya girmez.
+- **Paket** (joblib, tek dosya): `model` (ölçekleyici içeren sklearn pipeline), `secilen_model`, `mfcc_olcek` (eğitim yarısından genel MFCC ölçeği; `degisim_tahmin` ham MFCC'ye bunu uygular), `ozellik_surumu`, `ozellikler`, `baglam_k`, `baskin_oran`, `olasilik_esigi`, `min_aralik_sn`, `tolerans_sn`, `egitim_f1`, `tepe_tarama`, `uyarilar` (seçilen olasılık eşiği veya en küçük aralık ızgaranın kenarındaysa uyarı metinleri; eşik taramasındaki mantık), `cv` (aday başına `ap_ort`, `ap_std`, `katlar`), `egitim_tarihi`, `egitim_kayit_sayisi`, `egitim_cift_sayisi`, `degisim_orani`, `sklearn_surumu`, `seed`. `yukle`, özellik sürümü uyuşmazsa `ValueError` verir. Model dosyası repoya girmez.
 - **E5 (`e5_segmentleri`):** VAD bölgeleri, içlerine düşen tahmin edilmiş değişim noktalarından parçalara bölünür (VAD sınırları da segment sınırıdır). Her parçanın vektörü, merkezi parçanın içine düşen pencerelerin normalize ECAPA ortalamasıdır (hiç yoksa en yakın pencere). Parçalar `kumele(V, None, esik)` ile etiketlenir ve `segmentleri_birlestir`'den geçer. Sessizlik ve kısa konuşma kuralları `hat_segmentleri` ile aynıdır.
 
 ### 3.11 `src/uyumluluk.py` (sahibi: Sefkan)

@@ -11,12 +11,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 
 # modül -> {fonksiyon: parametre adları}  (docs/arayuz.md ile aynı olmalı)
 SOZLESME = {
-    "src.ses_girdi": {"ses_yukle": ["yol"], "on_isle": ["veri", "sr_girdi"]},
+    "src.ses_girdi": {"ses_yukle": ["yol"], "on_isle": ["veri", "sr_girdi"], "wav_denetle": ["kaynak", "ad"]},
     "src.vad": {"konusma_bolgeleri": ["ses", "sr"]},
     "src.oznitelik": {
         "pencerele": ["bolgeler", "pencere_sn", "kaydirma_sn"],
         "vektorler": ["ses", "sr", "pencereler", "yontem"],
         "ecapa_modeli": ["onbellek"],
+        "olcek_hesapla": ["X_listesi"],
+        "olcekle": ["X", "olcek"],
     },
     "src.kumeleme": {"kumele": ["X", "konusmaci_sayisi", "esik"]},
     "src.cikti": {
@@ -49,7 +51,8 @@ SOZLESME = {
         "ozellik_al": ["kaynak", "kayit", "onbellek", "yontemler"],
         "onbellek_doldur": ["zip_yol", "kayitlar", "onbellek", "yontemler", "gunluk_dizin", "log"],
         "deney_calistir": ["zip_yol", "rttm_dizin", "kayitlar", "deney", "cikti_dizin", "onbellek",
-                           "esik", "model_yolu", "log"],
+                           "esik", "model_yolu", "mfcc_olcek", "log"],
+        "yuzdelik_izgarasi": ["yukseklikler", "n"],
         "esik_tara": ["zip_yol", "rttm_dizin", "kayitlar", "onbellek", "yontemler", "izgara",
                       "gunluk_dizin", "log"],
         "esikleri_yaz": ["yol", "sonuc"],
@@ -88,7 +91,7 @@ def test_sozlesme():
     from src import degisim_modeli, kumeleme, ses_girdi, toplu
     assert ses_girdi.SR == 16000
     assert isinstance(kumeleme.VARSAYILAN_ESIK, float)
-    assert degisim_modeli.OZELLIK_SURUMU == "v1" and len(degisim_modeli.OZELLIKLER) == 6
+    assert degisim_modeli.OZELLIK_SURUMU == "v2" and len(degisim_modeli.OZELLIKLER) == 6
     assert toplu.CSV_SUTUNLARI[:5] == ["deney", "kayit", "der", "jer", "f1"]
     assert sorted(toplu.DENEYLER) == ["E1", "E2", "E3", "E4", "E5"]
 
