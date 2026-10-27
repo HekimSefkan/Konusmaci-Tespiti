@@ -1,0 +1,149 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mxfile host="app.diagrams.net">
+  <diagram id="sistem_akis" name="sistem_akis">
+    <mxGraphModel dx="1000" dy="800" grid="0" page="1" pageWidth="1150" pageHeight="1010" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="baslik" value="&lt;b&gt;Sistem akış diyagramı: konuşmacı değişimi tespiti&lt;/b&gt;" style="text;html=1;fontSize=18;align=left;" parent="1" vertex="1">
+          <mxGeometry x="20" y="10" width="700" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="cli" value="&lt;b&gt;Komut satırı&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:11px&quot;&gt;main.py&lt;br&gt;çıkış kodu: 0 / 1 / 2&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F58518;strokeColor=#333333;fontColor=#1a1a1a;fontSize=14;" parent="1" vertex="1">
+          <mxGeometry x="20.0" y="90.0" width="240" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="hata" value="&lt;b&gt;Hata mesajı (dosya&lt;br&gt;adıyla), çıkış kodu 1&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:11px&quot;&gt;ses_girdi.py&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E45756;strokeColor=#333333;fontColor=#ffffff;fontSize=14;" parent="1" vertex="1">
+          <mxGeometry x="310.0" y="90.0" width="240" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="bos" value="&lt;b&gt;Boş RTTM yaz&lt;br&gt;çıkış kodu 0&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:11px&quot;&gt;cikti.py&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F58518;strokeColor=#333333;fontColor=#1a1a1a;fontSize=14;" parent="1" vertex="1">
+          <mxGeometry x="890.0" y="90.0" width="240" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="ses" value="&lt;b&gt;Ses dosyası&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:11px&quot;&gt;wav / mp3 / flac&lt;/font&gt;" style="rounded=1;arcSize=50;whiteSpace=wrap;html=1;fillColor=#E6E6E6;strokeColor=#333333;fontColor=#1a1a1a;fontSize=14;" parent="1" vertex="1">
+          <mxGeometry x="20.0" y="270.0" width="240" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="d1" value="&lt;b&gt;Girdi geçerli mi?&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:11px&quot;&gt;ses_girdi.py&lt;/font&gt;" style="rhombus;whiteSpace=wrap;html=1;fillColor=#4C78A8;strokeColor=#333333;fontColor=#ffffff;fontSize=14;" parent="1" vertex="1">
+          <mxGeometry x="310.0" y="255.0" width="240" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="pre" value="&lt;b&gt;Ön işleme&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:11px&quot;&gt;16 kHz mono, RMS normalizasyon&lt;br&gt;(isteğe bağlı gürültü azaltma)&lt;br&gt;ses_girdi.py&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#4C78A8;strokeColor=#333333;fontColor=#ffffff;fontSize=14;" parent="1" vertex="1">
+          <mxGeometry x="600.0" y="270.0" width="240" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="d2" value="&lt;b&gt;Konuşma var mı?&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:11px&quot;&gt;VAD (Silero) · vad.py&lt;/font&gt;" style="rhombus;whiteSpace=wrap;html=1;fillColor=#4C78A8;strokeColor=#333333;fontColor=#ffffff;fontSize=14;" parent="1" vertex="1">
+          <mxGeometry x="890.0" y="255.0" width="240" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="d3" value="&lt;b&gt;Konuşma ≥ 1,5 sn?&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:11px&quot;&gt;main.py&lt;/font&gt;" style="rhombus;whiteSpace=wrap;html=1;fillColor=#F58518;strokeColor=#333333;fontColor=#1a1a1a;fontSize=14;" parent="1" vertex="1">
+          <mxGeometry x="890.0" y="455.0" width="240" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="seg" value="&lt;b&gt;Segmentleme&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:11px&quot;&gt;1,5 sn pencere, 0,75 sn kaydırma&lt;br&gt;oznitelik.py&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#4C78A8;strokeColor=#333333;fontColor=#ffffff;fontSize=14;" parent="1" vertex="1">
+          <mxGeometry x="600.0" y="470.0" width="240" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="emb" value="&lt;b&gt;Öznitelik / gömme&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:11px&quot;&gt;MFCC (26 boyut) veya&lt;br&gt;ECAPA (192 boyut) · oznitelik.py&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#4C78A8;strokeColor=#333333;fontColor=#ffffff;fontSize=14;" parent="1" vertex="1">
+          <mxGeometry x="310.0" y="470.0" width="240" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="kum" value="&lt;b&gt;Kümeleme&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:11px&quot;&gt;konuşmacı sayısı tahmini dahil&lt;br&gt;kumeleme.py&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F58518;strokeColor=#333333;fontColor=#1a1a1a;fontSize=14;" parent="1" vertex="1">
+          <mxGeometry x="20.0" y="470.0" width="240" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="mrg" value="&lt;b&gt;Segment birleştirme&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:11px&quot;&gt;+ kısa segment yumuşatma&lt;br&gt;cikti.py&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F58518;strokeColor=#333333;fontColor=#1a1a1a;fontSize=14;" parent="1" vertex="1">
+          <mxGeometry x="20.0" y="670.0" width="240" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="cp" value="&lt;b&gt;Değişim noktaları&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:11px&quot;&gt;konuşmacının değiştiği anlar&lt;br&gt;cikti.py&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F58518;strokeColor=#333333;fontColor=#1a1a1a;fontSize=14;" parent="1" vertex="1">
+          <mxGeometry x="310.0" y="670.0" width="240" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="out" value="&lt;b&gt;Çıktı&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:11px&quot;&gt;RTTM, tablo, süre özeti,&lt;br&gt;zaman çizelgesi · cikti.py&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F58518;strokeColor=#333333;fontColor=#1a1a1a;fontSize=14;" parent="1" vertex="1">
+          <mxGeometry x="600.0" y="670.0" width="240" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="kisa" value="&lt;b&gt;Tek segment (uyarı)&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:11px&quot;&gt;tüm konuşma = spk00&lt;br&gt;main.py&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F58518;strokeColor=#333333;fontColor=#1a1a1a;fontSize=14;" parent="1" vertex="1">
+          <mxGeometry x="890.0" y="670.0" width="240" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="eval" value="&lt;b&gt;Değerlendirme&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:11px&quot;&gt;DER / JER / değişim noktası F1&lt;br&gt;degerlendirme.py&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#54A24B;strokeColor=#333333;fontColor=#1a1a1a;fontSize=14;" parent="1" vertex="1">
+          <mxGeometry x="600.0" y="870.0" width="240" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="ref" value="&lt;b&gt;Veri seti +&lt;br&gt;referans RTTM&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:11px&quot;&gt;VoxConverse v0.3 dev&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#54A24B;strokeColor=#333333;fontColor=#1a1a1a;fontSize=14;" parent="1" vertex="1">
+          <mxGeometry x="890.0" y="870.0" width="240" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="e0" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeWidth=2;labelBackgroundColor=#ffffff;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" parent="1" edge="1" source="cli" target="ses">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeWidth=2;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" parent="1" edge="1" source="ses" target="d1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" value="evet" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeWidth=2;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" parent="1" edge="1" source="d1" target="pre">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" value="hayır" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeWidth=2;labelBackgroundColor=#ffffff;exitX=0.5;exitY=0;entryX=0.5;entryY=1;" parent="1" edge="1" source="d1" target="hata">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeWidth=2;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" parent="1" edge="1" source="pre" target="d2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" value="hayır" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeWidth=2;labelBackgroundColor=#ffffff;exitX=0.5;exitY=0;entryX=0.5;entryY=1;" parent="1" edge="1" source="d2" target="bos">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" value="evet" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeWidth=2;labelBackgroundColor=#ffffff;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" parent="1" edge="1" source="d2" target="d3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e7" value="evet" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeWidth=2;labelBackgroundColor=#ffffff;exitX=0;exitY=0.5;entryX=1;entryY=0.5;" parent="1" edge="1" source="d3" target="seg">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e8" value="hayır" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeWidth=2;labelBackgroundColor=#ffffff;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" parent="1" edge="1" source="d3" target="kisa">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e9" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeWidth=2;labelBackgroundColor=#ffffff;exitX=0;exitY=0.5;entryX=1;entryY=0.5;" parent="1" edge="1" source="seg" target="emb">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e10" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeWidth=2;labelBackgroundColor=#ffffff;exitX=0;exitY=0.5;entryX=1;entryY=0.5;" parent="1" edge="1" source="emb" target="kum">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e11" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeWidth=2;labelBackgroundColor=#ffffff;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" parent="1" edge="1" source="kum" target="mrg">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e12" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeWidth=2;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" parent="1" edge="1" source="mrg" target="cp">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e13" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeWidth=2;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" parent="1" edge="1" source="cp" target="out">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e14" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeWidth=2;labelBackgroundColor=#ffffff;exitX=0;exitY=0.5;entryX=1;entryY=0.5;" parent="1" edge="1" source="kisa" target="out">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e15" value="referans RTTM ile" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeWidth=2;labelBackgroundColor=#ffffff;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" parent="1" edge="1" source="out" target="eval">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e16" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeWidth=2;labelBackgroundColor=#ffffff;exitX=0;exitY=0.5;entryX=1;entryY=0.5;" parent="1" edge="1" source="ref" target="eval">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="lej" value="&lt;b&gt;Lejant (sorumlu)&lt;/b&gt;" style="text;html=1;fontSize=14;align=left;" parent="1" vertex="1">
+          <mxGeometry x="20" y="800" width="200" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="lk0" value="" style="rounded=0;fillColor=#4C78A8;strokeColor=#333333;" parent="1" vertex="1">
+          <mxGeometry x="20" y="834" width="28" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="lt0" value="Abdullah: girdi, ön işleme, VAD, segmentleme, öznitelik" style="text;html=1;fontSize=13;align=left;" parent="1" vertex="1">
+          <mxGeometry x="58" y="832" width="520" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="lk1" value="" style="rounded=0;fillColor=#F58518;strokeColor=#333333;" parent="1" vertex="1">
+          <mxGeometry x="20" y="868" width="28" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="lt1" value="Cevat: kümeleme, birleştirme, değişim noktaları, çıktı, komut satırı" style="text;html=1;fontSize=13;align=left;" parent="1" vertex="1">
+          <mxGeometry x="58" y="866" width="520" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="lk2" value="" style="rounded=0;fillColor=#54A24B;strokeColor=#333333;" parent="1" vertex="1">
+          <mxGeometry x="20" y="902" width="28" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="lt2" value="Sefkan: veri seti, referans RTTM, değerlendirme" style="text;html=1;fontSize=13;align=left;" parent="1" vertex="1">
+          <mxGeometry x="58" y="900" width="520" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="lk3" value="" style="rounded=0;fillColor=#E45756;strokeColor=#333333;" parent="1" vertex="1">
+          <mxGeometry x="20" y="936" width="28" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="lt3" value="Hata dalı" style="text;html=1;fontSize=13;align=left;" parent="1" vertex="1">
+          <mxGeometry x="58" y="934" width="520" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="lk4" value="" style="rounded=0;fillColor=#E6E6E6;strokeColor=#333333;" parent="1" vertex="1">
+          <mxGeometry x="20" y="970" width="28" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="lt4" value="Girdi verisi" style="text;html=1;fontSize=13;align=left;" parent="1" vertex="1">
+          <mxGeometry x="58" y="968" width="520" height="24" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

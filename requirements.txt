@@ -1,0 +1,37 @@
+# Konusmaci Tespiti - bagimlilik listesi
+# Hedef Python surumleri: 3.10 ve 3.12 (Windows x64 ve Linux x86_64, Google Colab dahil)
+# Kurulum: pip install -r requirements.txt
+# Dogrulama: python tests/kurulum_kontrol.py
+# Tum surumler == ile sabitlenmistir. Ayrintilar: README.md "Kurulum".
+
+# Linux'ta PyPI'daki torch CUDA'li ve cok buyuktur; CPU surumu bu adresten gelir.
+# (Windows'ta PyPI torch zaten CPU'dur; bu satir etkisizdir.)
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+# --- Sayisal islem ---
+numpy==2.2.6
+scipy==1.15.3
+scikit-learn==1.7.2
+
+# --- Ses okuma / on isleme ---
+soundfile==0.13.1
+librosa==0.11.0
+noisereduce==3.0.3
+
+# --- VAD ---
+# webrtcvad-wheels: "import webrtcvad" adini saglar, hazir wheel'i vardir (C++ derleyici gerekmez).
+webrtcvad-wheels==2.0.14
+silero-vad==5.1.2
+
+# --- Derin ogrenme ve gomme modelleri ---
+torch==2.5.1
+torchaudio==2.5.1
+speechbrain==1.0.3
+# speechbrain 1.0.3 hf_hub_download(use_auth_token=...) cagirir; huggingface_hub 1.x bunu kaldirdi.
+huggingface_hub==0.36.0
+
+# --- Degerlendirme (DER/JER) ---
+pyannote.metrics==4.1
+
+# --- Gorsellestirme ---
+matplotlib==3.10.7

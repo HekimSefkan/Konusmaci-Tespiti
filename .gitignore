@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# Ses dosyaları repoya girmez (Drive'da durur)
+*.wav
+*.mp3
+*.flac
+data/raw/
+
+# Program çıktıları
+outputs/
+
+# NOT: data/sample/*.rttm takip edilir (ignore edilmemiştir)
