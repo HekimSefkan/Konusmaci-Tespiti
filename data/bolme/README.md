@@ -20,6 +20,8 @@ python -m src.bolme --rttm-dizin <voxconverse/dev> --cikti-dizin <klasor>
 - Her tabaka sıralanır, `random.Random(68)` ile karıştırılır ve ikiye bölünür. Tek sayılı tabakalarda artan kayıt sırayla bir eğitime, bir değerlendirmeye verilir; toplamda yaklaşık 108 / 108 olur.
 - Aynı RTTM'ler ve aynı seed her zaman aynı bölmeyi verir.
 
-## Durum
+## Durum ve doğrulama
 
-Liste dosyaları Colab'da (`notebooks/hafta4_deneyler.ipynb`, bölüm 4) üretilip Drive'a yazılır (`Hafta4/bolme/`). İçerikleri doğrulandıktan sonra bu klasöre eklenecek.
+- Liste dosyaları Colab'da (`notebooks/hafta4_deneyler.ipynb`, bölüm 4) `python -m src.bolme` ile üretildi ve buraya olduğu gibi eklendi: eğitim 108, değerlendirme 108 kayıt, ortak kayıt yok.
+- `tests/test_bolme.py::test_repo_listeleri` dosyaların biçimini her ortamda denetler (108 + 108, sıralı, benzersiz, kesişimsiz).
+- **Betiğin aynı listeleri ürettiği yerelde test edilemez:** VoxConverse dev RTTM'leri (216 dosya) repoda yoktur. `tests/test_bolme.py::test_betik_repo_listelerini_uretir` bu karşılaştırmayı yalnızca `KT_VOX_RTTM` ortam değişkeni VoxConverse `dev/` klasörünü gösterdiğinde yapar, aksi halde atlanır. Defter 0. bölümde bu değişkeni ayarlar; 4. bölümden (RTTM'lerin klonlanması) sonra `pytest tests/test_bolme.py` çalıştırılırsa karşılaştırma Colab'da yapılır.

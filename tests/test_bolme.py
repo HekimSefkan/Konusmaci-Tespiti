@@ -1,4 +1,6 @@
 """src/bolme.py testleri (sentetik RTTM'ler, yalnızca standart kütüphane)."""
+import os
+
 import pytest
 
 from src import bolme
@@ -63,3 +65,29 @@ def test_liste_yaz_oku_ve_cli(tmp_path):
     (cikti / "elle.txt").write_text("# yorum\n\nk1\n k2 \n", encoding="utf-8")
     assert bolme.liste_oku(str(cikti / "elle.txt")) == ["k1", "k2"]
     assert bolme.main(["--rttm-dizin", str(tmp_path / "yok"), "--cikti-dizin", str(cikti)]) == 1
+
+
+# --- repodaki liste dosyaları (data/bolme/) --------------------------------
+
+KOK = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+LISTE_DIZIN = os.path.join(KOK, "data", "bolme")
+
+
+def test_repo_listeleri():
+    egitim = bolme.liste_oku(os.path.join(LISTE_DIZIN, "egitim.txt"))
+    deg = bolme.liste_oku(os.path.join(LISTE_DIZIN, "degerlendirme.txt"))
+    assert len(egitim) == 108 and len(deg) == 108
+    assert egitim == sorted(set(egitim)) and deg == sorted(set(deg))
+    assert not set(egitim) & set(deg)
+    # örnek kayıtların (data/sample) yarıları
+    assert {"abjxc", "ikgcq", "migzj"} <= set(egitim) and {"luvfz", "sldwj"} <= set(deg)
+
+
+def test_betik_repo_listelerini_uretir():
+    """VoxConverse dev RTTM'leri yalnızca Colab'da var: KT_VOX_RTTM yoksa atlanır."""
+    vox = os.environ.get("KT_VOX_RTTM")
+    if not vox or not os.path.isdir(vox):
+        pytest.skip("KT_VOX_RTTM (VoxConverse dev RTTM klasörü) yok; karşılaştırma Colab'da yapılır")
+    egitim, deg = bolme.bol(bolme.konusmaci_sayilari(vox))
+    assert egitim == bolme.liste_oku(os.path.join(LISTE_DIZIN, "egitim.txt"))
+    assert deg == bolme.liste_oku(os.path.join(LISTE_DIZIN, "degerlendirme.txt"))
