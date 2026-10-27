@@ -87,7 +87,7 @@ olcekle(X: np.ndarray, olcek: dict | None) -> np.ndarray
 ```
 - **MFCC genel standartlaştırma.** `olcek_hesapla`: verilen tüm matrislerin pencerelerinden boyut başına ortalama ve standart sapma (std alt sınırı 1e-8); dönüş `{"ortalama": [D], "std": [D], "pencere_sayisi": n}`. Hata: `ValueError` (hiç pencere yok). `olcekle`: `(X - ortalama) / std`, `float32`; `olcek` `None` ise `X` değişmez.
 - Ölçek **yalnızca eğitim yarısının** tüm MFCC pencerelerinden hesaplanır ve değerlendirme yarısında aynısı kullanılır. **Kayıt başına ortalama çıkarılmaz** (tek konuşmacılı kayıtları bölebilir). Gerekçe: c0'sız MFCC ortalama+std vektörleri ortak bir yönde toplanır, L2 normalize kosinüs mesafeleri çok küçük kalır (Hafta 4 duman testi: 0,5 eşikle her kayıtta 1 konuşmacı). Ölçek önbelleğe yazılmaz; önbellekte ham MFCC durur.
-- Uygulandığı yerler: E1/E2 kümelemesi (`esikler.json` → `mfcc_olcek`), eşik taraması (MFCC), değişim modelinin `mfcc_cos` özelliği (`degisim_modeli.joblib` → `mfcc_olcek`). `src/main.py` tek dosya komutu ölçek kullanmaz.
+- Uygulandığı yerler: E1/E2 kümelemesi (`esikler.json` → `mfcc_olcek`), eşik taraması (MFCC), değişim modelinin `mfcc_cos` özelliği (`degisim_modeli.joblib` → `mfcc_olcek`). `src/main.py` tek dosya komutu MFCC'de `src/varsayilanlar.json` içindeki ölçeği uygular (3.12).
 
 ### 3.4 `src/kumeleme.py` (sahibi: Cevat)
 
@@ -97,7 +97,7 @@ kumele(X: np.ndarray, konusmaci_sayisi: int | None = None, esik: float | None = 
 - Yöntem: ortalama bağlantılı AHC, kosinüs mesafesi (gerekçe: Hafta2 C-4 bölümü).
 - `X`: `(N, D)`, `float32`. `konusmaci_sayisi`: biliniyorsa verilir, `None` ise `esik` ile otomatik kestirilir (tek konuşmacıda 1 küme çıkabilir, TG-6). `esik`: kosinüs mesafesi eşiği, `None` ise `VARSAYILAN_ESIK` (VoxConverse dev üzerinde ayarlanacak, KG-3).
 - Vektörler önce L2 ile normalize edilir. `konusmaci_sayisi` verilirse scipy `fcluster(criterion="maxclust")`, verilmezse `criterion="distance"` kullanılır.
-- `VARSAYILAN_ESIK = 0.5` **geçicidir**; Colab'da VoxConverse dev üzerinde yöntem başına (mfcc / ecapa) ayarlanacaktır.
+- `VARSAYILAN_ESIK` = `varsayilanlar.esik("ecapa")` (0,79346; Hafta 4'te VoxConverse dev eğitim yarısında ayarlandı, 3.12). `kumele` yöntemi bilmediği için `esik=None`'da varsayılan yöntemin (ECAPA) eşiğini kullanır; MFCC eşiği `varsayilanlar.esik("mfcc")` (0,77122) ile çağıran tarafından verilir (`main`, `toplu`).
 - Dönüş: `(N,)` `int` etiketler (`0..K-1`). `N == 0` ise boş dizi, `N == 1` ise `[0]`.
 - Hata: `ValueError` (`X` iki boyutlu değil veya `konusmaci_sayisi < 1`).
 
@@ -153,7 +153,11 @@ degerlendir(ref_rttm: str, hyp_rttm: str, collar: float = 0.5, tolerans_sn: floa
 ```python
 main(argv: list[str] | None = None) -> int
 ```
-Komut satırı: `python -m src.main <girdi_ses> -o <cikti.rttm> [--yontem mfcc|ecapa] [--konusmaci-sayisi N] [--esik E]` (`--esik`: AHC kosinüs mesafesi eşiği, verilmezse `VARSAYILAN_ESIK`)
+Komut satırı: `python -m src.main <girdi_ses> -o <cikti.rttm> [--yontem ecapa|mfcc] [--konusmaci-sayisi N] [--esik E]`
+
+- `--yontem`: varsayılan **`ecapa`** (Hafta 4 değerlendirme yarısında en iyi sonuç: E4, DER 0,061). `mfcc` seçenek olarak kalır.
+- `--esik`: AHC kosinüs mesafesi eşiği. Verilmezse (ve `--konusmaci-sayisi` yoksa) yöntemin ayarlanmış eşiği kullanılır: `varsayilanlar.esik(yontem)` (ecapa 0,79346, mfcc 0,77122). `--konusmaci-sayisi` verilirse eşik kullanılmaz.
+- MFCC'de vektörler kümelemeden önce `varsayilanlar.mfcc_olcek()` ile standartlaştırılır; ölçek henüz dosyada yoksa ham MFCC kullanılır ve uyarı yazılır.
 
 | Çıkış kodu | Anlamı |
 |---|---|
@@ -202,7 +206,7 @@ python -m src.toplu --model-egit --zip Z --rttm-dizin R --liste L --onbellek O -
 | E4 | ECAPA | AHC, eşikle |
 | E5 | ECAPA (+ MFCC özelliği) | Değişim modeli segmentleri + AHC (ECAPA eşiğiyle) |
 
-Eşik önceliği (E2/E4/E5): `--esik` > `--esikler` dosyasındaki yöntem eşiği > `VARSAYILAN_ESIK`. E1/E2'de MFCC ölçeği `--esikler` dosyasının `mfcc_olcek` alanından okunur; yoksa ham MFCC kullanılır ve uyarı yazılır.
+Eşik önceliği (E2/E4/E5): `--esik` > `--esikler` dosyasındaki yöntem eşiği > `varsayilanlar.esik(yontem)` (E5: ecapa). E1/E2'de MFCC ölçeği önceliği: `--esikler` dosyasının `mfcc_olcek` alanı > `varsayilanlar.mfcc_olcek()`; ikisi de yoksa ham MFCC kullanılır ve uyarı yazılır. `deney_calistir` doğrudan çağrılırsa `esik=None` yöntemin ayarlanmış eşiği, `mfcc_olcek=None` ham MFCC demektir.
 
 ```python
 class SesKaynagi(zip_yol)                       # .oku(kayit) -> (ses, 16000); bağlam yöneticisi
@@ -264,6 +268,18 @@ speechbrain_hazirla() -> list[str]
 - **Ne yapar:** `torchaudio`'yu içe aktarır; `list_audio_backends` yoksa `["soundfile"]` döndüren, `set_audio_backend` yoksa hiçbir şey yapmayan bir fonksiyon atar. Var olan fonksiyonlara dokunmaz, tekrar çağrılabilir. Dönüş: bu çağrıda eklenen adlar. Hata: `ImportError` (torchaudio yok).
 - **Kural:** speechbrain'i içe aktaran her yer önce bunu çağırır: `oznitelik.ecapa_modeli`, `tests/kurulum_kontrol.py`, `tests/test_oznitelik.py`, defterin 1. bölümü.
 - **Etkisi yok:** speechbrain v1.0.3 kaynağında kontrol edildi: `EncoderClassifier.from_hparams` (`Fbank`, `InputNormalization`, `ECAPA_TDNN`, `CategoricalEncoder`, `Pretrainer`) ve `encode_batch` akışında başka `torchaudio` çağrısı yoktur. `torchaudio.load` yalnızca `load_audio` / `classify_file` gibi dosya yolu alan yardımcılarda geçer; hattımız sesi `soundfile`/`librosa` ile okuyup ECAPA'ya tensör verir, bunları kullanmaz.
+
+### 3.12 `src/varsayilanlar.py` ve `src/varsayilanlar.json` (sahibi: Sefkan)
+
+```python
+yukle() -> dict
+esik(yontem: str) -> float
+mfcc_olcek() -> dict | None
+```
+- `src/varsayilanlar.json`, eğitim yarısında ayarlanan değerlerin tek kaynağıdır: `{"kaynak", "tarih", "esik": {"mfcc", "ecapa"}, "mfcc_olcek": {"ortalama": [26], "std": [26], "pencere_sayisi"} | null}`. Değerler `src.toplu --esik-tara` çıktısından (`esikler.json`) alınır; defterin 10. bölümü bu dosyanın içeriğini tek satırlık JSON olarak basar ("REPO SABİTLERİ").
+- `yukle`: dosyayı bir kez okur ve denetler. Hata: `ValueError` (iki yöntemin eşiği yok veya pozitif değil; `mfcc_olcek` 26 ortalama ve 26 pozitif std içermiyor). `esik`: yöntemin eşiği; bilinmeyen yöntemde `ValueError`. `mfcc_olcek`: ölçek veya henüz doldurulmadıysa `None`.
+- Kullananlar: `kumeleme.VARSAYILAN_ESIK`, `main.calistir`, `toplu.deney_calistir` ve `toplu` komut satırı (`--esikler` verilmediğinde).
+- Hafta 4 değerleri: eşik mfcc 0,77122, ecapa 0,79346 (eşik taramasında uyarı yok). `tarih` ve `mfcc_olcek` şu an yer tutucudur (`null`); Colab çıktısıyla doldurulacak.
 
 ## 4. Kenar durumlar
 
