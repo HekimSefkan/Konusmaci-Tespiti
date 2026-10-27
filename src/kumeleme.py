@@ -1,8 +1,20 @@
 """Konuşmacı kümeleme. Sahibi: Cevat. Sözleşme: docs/arayuz.md"""
 import numpy as np
 
+# Kosinüs mesafesi eşiği (0-2). GEÇİCİ değer: Colab'da eğitim yarısında
+# (VoxConverse dev) yöntem başına (mfcc / ecapa) ayarlanacak (KG-3).
+VARSAYILAN_ESIK = 0.5
 
-VARSAYILAN_ESIK = None  # kosinüs mesafesi eşiği; VoxConverse dev üzerinde ayarlanacak (KG-3)
+_EPS = 1e-12
+
+
+def _yeniden_numarala(etiketler: np.ndarray) -> np.ndarray:
+    """Etiketleri ilk görünme sırasına göre 0..K-1 yapar."""
+    eslesme: dict[int, int] = {}
+    sonuc = np.empty(len(etiketler), dtype=int)
+    for i, e in enumerate(etiketler):
+        sonuc[i] = eslesme.setdefault(int(e), len(eslesme))
+    return sonuc
 
 
 def kumele(X: np.ndarray, konusmaci_sayisi: int | None = None, esik: float | None = None) -> np.ndarray:
@@ -16,4 +28,31 @@ def kumele(X: np.ndarray, konusmaci_sayisi: int | None = None, esik: float | Non
            N == 1 ise [0].
     Hata: ValueError (X iki boyutlu değil veya konusmaci_sayisi < 1).
     """
-    raise NotImplementedError
+    X = np.asarray(X, dtype=np.float64)
+    if X.ndim != 2:
+        raise ValueError(f"X iki boyutlu olmalı, şekil {X.shape}")
+    if konusmaci_sayisi is not None and konusmaci_sayisi < 1:
+        raise ValueError(f"konusmaci_sayisi >= 1 olmalı, verilen {konusmaci_sayisi}")
+    n = X.shape[0]
+    if n == 0:
+        return np.zeros(0, dtype=int)
+    if n == 1:
+        return np.zeros(1, dtype=int)
+
+    from scipy.cluster.hierarchy import fcluster, linkage
+    from scipy.spatial.distance import squareform
+
+    # L2 normalizasyonu; sıfır vektör sıfır kalır (her şeye mesafesi 1 olur).
+    normlar = np.linalg.norm(X, axis=1, keepdims=True)
+    Xn = X / np.maximum(normlar, _EPS)
+    D = np.clip(1.0 - Xn @ Xn.T, 0.0, 2.0)  # kosinüs mesafesi
+    D = (D + D.T) / 2
+    np.fill_diagonal(D, 0.0)
+    Z = linkage(squareform(D, checks=False), method="average")
+
+    if konusmaci_sayisi is not None:
+        etiketler = fcluster(Z, t=konusmaci_sayisi, criterion="maxclust")
+    else:
+        t = VARSAYILAN_ESIK if esik is None else esik
+        etiketler = fcluster(Z, t=t, criterion="distance")
+    return _yeniden_numarala(etiketler)
