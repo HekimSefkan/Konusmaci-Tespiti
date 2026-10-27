@@ -4,6 +4,9 @@ rttm_istatistik.py - RTTM dosyalarından kayıt istatistikleri çıkarır.
 
 Grup_68 - "Ses Kayıtlarında Konuşmacı Değişimlerinin Tespiti" projesi.
 Yalnızca Python standart kütüphanesini kullanır (Python 3.8+).
+Değişim noktası tanımı tek kaynaktan, src/cikti.py içindeki
+temel_araliklar ve tek_konusmaci_segmentleri fonksiyonlarından alınır
+(src/degerlendirme.py de aynı tanımı kullanır; numpy gerekmez).
 
 Her kayıt (RTTM'deki 2. alan, dosya adı) için hesaplananlar:
   - sure_sn          : Toplam süre = son segmentin bitişi (başlangıç + süre).
@@ -16,7 +19,7 @@ Her kayıt (RTTM'deki 2. alan, dosya adı) için hesaplananlar:
   - ortusme_orani    : ortusme_sn / konusma_sn (0-1 arası).
   - degisim          : Konuşmacı değişim noktası sayısı (tanım aşağıda).
 
-KONUŞMACI DEĞİŞİM NOKTASI TANIMI
+KONUŞMACI DEĞİŞİM NOKTASI TANIMI (uygulaması: src/cikti.py)
   1) Zaman ekseni, segment sınırlarına göre küçük aralıklara bölünür.
   2) Her aralıkta etkin (konuşan) konuşmacı kümesine bakılır:
        - Tam olarak 1 konuşmacı varsa aralık "NON-OVERLAP" (tek konuşmacılı)
@@ -52,6 +55,10 @@ import os
 import sys
 from collections import defaultdict
 
+# Depo kökünü yola ekle: değişim tanımı src/cikti.py'de (yalnızca standart kütüphane).
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from src.cikti import temel_araliklar, tek_konusmaci_segmentleri  # noqa: E402
+
 
 def ms(saniye_metni):
     """Saniye cinsinden metni tamsayı milisaniyeye çevirir (kayan nokta
@@ -82,48 +89,10 @@ def rttm_oku(yol):
     return kayitlar
 
 
-def temel_araliklar(segler):
-    """Zaman eksenini segment sınırlarına göre böler.
-    [(bas_ms, bit_ms, etkin_konusmaci_kumesi), ...] döndürür (boş küme =
-    sessizlik). Aynı konuşmacının üst üste binen segmentleri tek sayılır."""
-    olaylar = defaultdict(list)
-    for bas, bit, k in segler:
-        olaylar[bas].append((k, +1))
-        olaylar[bit].append((k, -1))
-    zamanlar = sorted(olaylar)
-    etkin = defaultdict(int)
-    sonuc = []
-    for i, t in enumerate(zamanlar):
-        for k, d in olaylar[t]:
-            etkin[k] += d
-            if etkin[k] == 0:
-                del etkin[k]
-        if i + 1 < len(zamanlar):
-            sonuc.append((t, zamanlar[i + 1], frozenset(etkin)))
-    return sonuc
-
-
-def non_overlap_segmentler(araliklar):
-    """Tek konuşmacılı aralıklardan birleşik NON-OVERLAP segmentleri üretir.
-    Örtüşen (>=2 konuşmacı) ve sessiz aralıklar atılır; aynı konuşmacının
-    ardışık aralıkları tek segmentte birleştirilir.
-    [(bas_ms, bit_ms, konusmaci), ...] döndürür."""
-    segmentler = []
-    for bas, bit, kume in araliklar:
-        if len(kume) != 1:
-            continue
-        (k,) = kume
-        if segmentler and segmentler[-1][2] == k:
-            segmentler[-1] = (segmentler[-1][0], bit, k)
-        else:
-            segmentler.append((bas, bit, k))
-    return segmentler
-
-
 def degisim_noktalari(segler):
     """Değişim noktalarını [(zaman_ms, onceki_konusmaci, yeni_konusmaci)]
     olarak döndürür (tanım için modül açıklamasına bakın)."""
-    nov = non_overlap_segmentler(temel_araliklar(segler))
+    nov = tek_konusmaci_segmentleri(segler)
     return [(nov[i][0], nov[i - 1][2], nov[i][2]) for i in range(1, len(nov))]
 
 
