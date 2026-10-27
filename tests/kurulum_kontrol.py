@@ -5,6 +5,7 @@ Importlari ve kucuk duman testlerini calistirir; sonunda "KURULUM: OK" yazar.
 Ek paket gerektirmez (yalnizca requirements.txt).
 """
 import importlib
+import os
 import sys
 import time
 from pathlib import Path
@@ -51,7 +52,8 @@ def ecapa_testi():
     import torch
     from speechbrain.inference.speaker import EncoderClassifier
     from speechbrain.utils.fetching import LocalStrategy
-    onbellek = Path.home() / ".cache" / "konusmaci-tespiti" / "ecapa"
+    # src/oznitelik.py ile ayni kural: KT_MODEL_ONBELLEK varsa orasi (Colab: Drive), yoksa kullanici onbellegi
+    onbellek = Path(os.environ.get("KT_MODEL_ONBELLEK") or Path.home() / ".cache" / "konusmaci-tespiti" / "ecapa")
     model = EncoderClassifier.from_hparams(source="speechbrain/spkrec-ecapa-voxceleb",
                                            savedir=str(onbellek), run_opts={"device": "cpu"},
                                            local_strategy=LocalStrategy.COPY)  # Windows'ta symlink izni gerekmez
