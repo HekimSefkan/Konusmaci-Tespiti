@@ -35,3 +35,6 @@ pyannote.metrics==4.1
 
 # --- Gorsellestirme ---
 matplotlib==3.10.7
+
+# --- Test ---
+pytest==9.1.1
