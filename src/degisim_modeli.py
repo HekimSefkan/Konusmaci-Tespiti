@@ -212,6 +212,16 @@ def _adaylar(seed: int):
     return adaylar
 
 
+def _izgara_uyarilari(olasilik_esigi: float, min_aralik_sn: float) -> list[str]:
+    """Seçilen tepe ayarı ızgaranın kenarındaysa uyarı metinleri (eşik taramasındaki mantık)."""
+    uyarilar = []
+    if olasilik_esigi in (OLASILIK_IZGARASI[0], OLASILIK_IZGARASI[-1]):
+        uyarilar.append(f"olasilik_esigi: en iyi değer ızgaranın kenarında ({olasilik_esigi})")
+    if min_aralik_sn in (MIN_ARALIK_IZGARASI[0], MIN_ARALIK_IZGARASI[-1]):
+        uyarilar.append(f"min_aralik_sn: en iyi değer ızgaranın kenarında ({min_aralik_sn})")
+    return uyarilar
+
+
 def _mikro_f1(tp: int, fp: int, fn: int) -> float:
     p = tp / (tp + fp) if tp + fp else 1.0
     r = tp / (tp + fn) if tp + fn else 1.0
@@ -293,6 +303,9 @@ def egit(veriler: list[dict], seed: int = SEED, n_kat: int = 5, log=print) -> di
     en_iyi = max(tarama, key=lambda r: (r["mikro_f1"], r["olasilik_esigi"], r["min_aralik_sn"]))
     log(f"Tepe ayarı: olasılık eşiği {en_iyi['olasilik_esigi']:.2f}, min aralık "
         f"{en_iyi['min_aralik_sn']:.1f} sn -> eğitim yarısı mikro F1 {en_iyi['mikro_f1']:.4f}")
+    uyarilar = _izgara_uyarilari(en_iyi["olasilik_esigi"], en_iyi["min_aralik_sn"])
+    for u in uyarilar:
+        log(f"UYARI: {u}")
 
     return {
         "model": model,
@@ -306,6 +319,7 @@ def egit(veriler: list[dict], seed: int = SEED, n_kat: int = 5, log=print) -> di
         "tolerans_sn": TOLERANS_SN,
         "egitim_f1": en_iyi["mikro_f1"],
         "tepe_tarama": tarama,
+        "uyarilar": uyarilar,
         "cv": cv,
         "egitim_tarihi": datetime.datetime.now().isoformat(timespec="seconds"),
         "egitim_kayit_sayisi": len(veriler),

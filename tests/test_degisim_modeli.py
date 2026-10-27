@@ -97,6 +97,7 @@ def test_egit_kaydet_yukle_dongusu(tmp_path):
     assert len(paket["cv"]) == 7 and paket["egitim_kayit_sayisi"] == 8
     assert paket["olasilik_esigi"] in dm.OLASILIK_IZGARASI
     assert paket["min_aralik_sn"] in dm.MIN_ARALIK_IZGARASI
+    assert paket["uyarilar"] == dm._izgara_uyarilari(paket["olasilik_esigi"], paket["min_aralik_sn"])
 
     yol = tmp_path / "model" / "degisim_modeli.joblib"
     dm.kaydet(paket, str(yol))
@@ -109,6 +110,13 @@ def test_egit_kaydet_yukle_dongusu(tmp_path):
     ref_d = dm.cikti.degisim_noktalari(v["ref"])
     tp, fp, fn = _degisim_eslestir(ref_d, hyp, 1.0)
     assert tp / len(ref_d) >= 0.5
+
+
+def test_izgara_kenari_uyarilari():
+    assert dm._izgara_uyarilari(0.5, 1.0) == []
+    u = dm._izgara_uyarilari(0.10, 2.0)
+    assert len(u) == 2 and "olasilik_esigi" in u[0] and "min_aralik_sn" in u[1]
+    assert len(dm._izgara_uyarilari(0.90, 1.5)) == 1 and len(dm._izgara_uyarilari(0.3, 0.5)) == 1
 
 
 def test_yukle_surum_uyusmazligi(tmp_path):
