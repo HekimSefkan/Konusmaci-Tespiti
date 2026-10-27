@@ -26,7 +26,7 @@ import zipfile
 
 import numpy as np
 
-from . import bolme, cikti, degerlendirme, degisim_modeli, kumeleme, oznitelik, ses_girdi, vad
+from . import bolme, cikti, degerlendirme, degisim_modeli, kumeleme, oznitelik, ses_girdi, vad, varsayilanlar
 from . import main as ana
 
 DENEYLER = {
@@ -366,7 +366,7 @@ def deney_calistir(zip_yol: str, rttm_dizin: str, kayitlar: list[str], deney: st
     """Bir deneyi kayıtlar üzerinde çalıştırır; RTTM, kayıt CSV'si ve ozet.csv yazar.
 
     Önceden CSV'de olan kayıtlar atlanır. esik: E2/E4/E5 için AHC eşiği (None ->
-    VARSAYILAN_ESIK). mfcc_olcek: E1/E2'de kümelemeden önce uygulanan genel MFCC
+    yöntemin ayarlanmış eşiği, varsayilanlar.esik; E5'te ecapa). mfcc_olcek: E1/E2'de kümelemeden önce uygulanan genel MFCC
     ölçeği (esikler.json "mfcc_olcek"; None ise ham MFCC, uyarı yazılır). E5 ölçeği
     model paketinden alır. Dönüş: özet sözlüğü (+ "hatali": bu çalıştırmada hata veren kayıt sayısı).
     Hata: ValueError (bilinmeyen deney, E5'te model yok).
@@ -381,13 +381,14 @@ def deney_calistir(zip_yol: str, rttm_dizin: str, kayitlar: list[str], deney: st
             raise ValueError("E5 için --model gerekir")
         paket = degisim_modeli.yukle(model_yolu)
 
+    if kip != "sayi" and esik is None:
+        esik = varsayilanlar.esik(yontem)  # yöntemin ayarlanmış eşiği (E5: ecapa)
     rttm_klasor = os.path.join(cikti_dizin, deney)
     os.makedirs(rttm_klasor, exist_ok=True)
     csv_yol = os.path.join(cikti_dizin, f"{deney}.csv")
     yapilan = {r["kayit"] for r in _csv_oku(csv_yol)}
     bekleyen = [k for k in kayitlar if k not in yapilan]
-    esik_metni = "sayı referanstan" if kip == "sayi" else (
-        f"eşik {esik}" if esik is not None else f"eşik VARSAYILAN_ESIK={kumeleme.VARSAYILAN_ESIK}")
+    esik_metni = "sayı referanstan" if kip == "sayi" else f"eşik {esik}"
     if yontem == "mfcc" and kip != "model":
         esik_metni += ", MFCC genel ölçekli" if mfcc_olcek else ", ham MFCC"
         if not mfcc_olcek:
@@ -734,7 +735,7 @@ def main(argv: list[str] | None = None) -> int:
         esik = a.esik
         if esik is None and kip != "sayi":
             esik = esikler.get(yontem)
-        olcek = esikler.get("mfcc_olcek") if yontem == "mfcc" else None
+        olcek = (esikler.get("mfcc_olcek") or varsayilanlar.mfcc_olcek()) if yontem == "mfcc" else None
         s = deney_calistir(a.zip, a.rttm_dizin, kayitlar, a.deney, a.cikti_dizin, a.onbellek, esik, a.model,
                            mfcc_olcek=olcek)
         return 1 if s["hatali"] else 0

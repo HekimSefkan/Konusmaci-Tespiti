@@ -1,9 +1,12 @@
 """Konuşmacı kümeleme. Sahibi: Cevat. Sözleşme: docs/arayuz.md"""
 import numpy as np
 
-# Kosinüs mesafesi eşiği (0-2). GEÇİCİ değer: Colab'da eğitim yarısında
-# (VoxConverse dev) yöntem başına (mfcc / ecapa) ayarlanacak (KG-3).
-VARSAYILAN_ESIK = 0.5
+from . import varsayilanlar
+
+# Kosinüs mesafesi eşiği (0-2), Hafta 4'te VoxConverse dev eğitim yarısında yöntem
+# başına ayarlandı (src/varsayilanlar.json). kumele yöntemi bilmediği için esik=None'da
+# varsayılan yöntemin (ECAPA) eşiğini kullanır; MFCC için varsayilanlar.esik("mfcc").
+VARSAYILAN_ESIK = varsayilanlar.esik("ecapa")
 
 _EPS = 1e-12
 

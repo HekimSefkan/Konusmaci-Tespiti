@@ -64,6 +64,7 @@ SOZLESME = {
         "main": ["argv"],
     },
     "src.uyumluluk": {"speechbrain_hazirla": []},
+    "src.varsayilanlar": {"yukle": [], "esik": ["yontem"], "mfcc_olcek": []},
     "src.degisim_modeli": {
         "ozellikler": ["pencereler", "X_ecapa", "X_mfcc", "bolgeler", "k"],
         "cift_zamanlari": ["pencereler"],

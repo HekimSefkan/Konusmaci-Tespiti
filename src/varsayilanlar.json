@@ -1,0 +1,7 @@
+{
+  "kaynak": "Hafta 4, VoxConverse dev eğitim yarısı (data/bolme/egitim.txt, 108 kayıt), python -m src.toplu --esik-tara",
+  "tarih": null,
+  "esik": {"mfcc": 0.77122, "ecapa": 0.79346},
+  "mfcc_olcek": null,
+  "not": "tarih ve mfcc_olcek yer tutucudur; defterin 10. bölümündeki 'REPO SABİTLERİ' çıktısıyla doldurulacak"
+}
