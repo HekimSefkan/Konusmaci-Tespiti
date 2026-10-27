@@ -53,6 +53,27 @@ def test_bilinmeyen_yontem_ve_bos_pencere():
     assert oznitelik.vektorler(ses, 16000, [], "ecapa").shape == (0, 192)
 
 
+# --- genel ölçek (yerelde çalışır) ----------------------------------------
+
+def test_olcek_hesapla_ve_olcekle():
+    r = np.random.default_rng(0)
+    A = r.normal(5.0, 2.0, size=(300, 26))
+    B = r.normal(5.0, 2.0, size=(200, 26))
+    olcek = oznitelik.olcek_hesapla([A, np.zeros((0, 26)), B])
+    assert olcek["pencere_sayisi"] == 500 and len(olcek["ortalama"]) == 26
+    Z = oznitelik.olcekle(np.vstack([A, B]), olcek)
+    assert Z.dtype == np.float32
+    assert np.allclose(Z.mean(axis=0), 0, atol=1e-4) and np.allclose(Z.std(axis=0), 1, atol=1e-3)
+    # kayıt başına değil, genel: tek kaydın ortalaması sıfırlanmaz
+    tek = oznitelik.olcekle(A + 3.0, olcek)
+    assert tek.mean() > 1.0
+    assert oznitelik.olcekle(A, None) is not None and np.allclose(oznitelik.olcekle(A, None), A)
+    sabit = oznitelik.olcek_hesapla([np.ones((10, 26))])  # std 0 -> alt sınır, bölme hatası yok
+    assert np.all(np.isfinite(oznitelik.olcekle(np.ones((3, 26)), sabit)))
+    with pytest.raises(ValueError):
+        oznitelik.olcek_hesapla([np.zeros((0, 26))])
+
+
 # --- vektorler (librosa / speechbrain: Colab) -----------------------------
 
 def _sentetik(sure_sn=4.0, sr=16000):

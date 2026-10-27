@@ -63,6 +63,7 @@ def test_e5_model_egit_ve_calistir(ortam):
     model = str(o["kok"] / "modeller" / "degisim_modeli.joblib")
     paket = toplu.model_egit(o["zip"], o["rttm"], o["kayitlar"], o["onbellek"], model, log=SESSIZ)
     assert paket["egitim_kayit_sayisi"] == 6
+    assert len(paket["mfcc_olcek"]["std"]) == 26 and paket["ozellik_surumu"] == "v2"
     ozet = toplu.deney_calistir(o["zip"], o["rttm"], o["kayitlar"], "E5", o["cikti"], o["onbellek"],
                                 esik=0.5, model_yolu=model, log=SESSIZ)
     assert ozet["kayit_sayisi"] == 6 and ozet["der"] < 0.3
@@ -74,7 +75,9 @@ def test_esik_tara_ve_json(ortam):
     o = ortam
     sonuc = toplu.esik_tara(o["zip"], o["rttm"], o["kayitlar"], o["onbellek"],
                             izgara=(0.2, 0.5, 0.8, 1.2, 1.9), log=SESSIZ)
-    assert sonuc["mfcc"] in sonuc["izgara"] and sonuc["ecapa"] in sonuc["izgara"]
+    assert sonuc["mfcc"] in sonuc["izgara"]["mfcc"] and sonuc["ecapa"] in sonuc["izgara"]["ecapa"]
+    assert sonuc["genisletme"] == {"mfcc": 0, "ecapa": 0}  # sabit ızgara verilince genişletilmez
+    assert len(sonuc["mfcc_olcek"]["ortalama"]) == 26
     assert len(sonuc["tarama"]) == 10 and sonuc["hatali"] == {"mfcc": 0, "ecapa": 0}
     en_iyi = min(r["der"] for r in sonuc["tarama"] if r["yontem"] == "ecapa")
     assert en_iyi < 0.3
@@ -145,3 +148,46 @@ def test_zipten_okuma(tmp_path):
         assert sr == 16000 and ses.shape == (32000,) and ses.dtype == np.float32
         with pytest.raises(ValueError):
             k.oku("olmayan")
+
+
+def test_yuzdelik_izgarasi():
+    r = np.random.default_rng(0)
+    h = r.gamma(2.0, 0.1, size=5000)
+    g = toplu.yuzdelik_izgarasi(h)
+    assert g == sorted(g) and 30 <= len(g) <= toplu.YUZDELIK_SAYISI
+    assert np.percentile(h, 1) - 1e-5 <= g[0] and g[-1] <= np.percentile(h, 99) + 1e-5  # 5 ondalığa yuvarlı
+    adim = np.diff(100 - np.geomspace(99, 1, toplu.YUZDELIK_SAYISI))
+    assert adim[-1] < adim[0]  # yüzdelikler üst uca doğru sıklaşır
+    assert toplu.yuzdelik_izgarasi([]) == []
+
+
+def test_genislet():
+    h = np.linspace(0.1, 1.0, 1000)
+    alt = toplu._genislet([0.2, 0.5, 0.8], h, "alt", 0)
+    ust = toplu._genislet([0.2, 0.5, 0.8], h, "ust", 0)
+    assert alt and all(v < 0.2 for v in alt) and ust and all(v > 0.8 for v in ust)
+    assert max(ust) == pytest.approx(1.01)  # her şeyin birleştiği değer de denenir
+    assert all(v > 0.8 for v in toplu._genislet([0.2, 0.5, 0.8], h, "ust", 1))
+
+
+def test_esik_tara_veriden_izgara(ortam):
+    o = ortam
+    sonuc = toplu.esik_tara(o["zip"], o["rttm"], o["kayitlar"], o["onbellek"], log=SESSIZ)
+    for y in ("mfcc", "ecapa"):
+        g = sonuc["izgara"][y]
+        assert g == sorted(g) and len(g) >= 20 and sonuc[y] in g
+        en_iyi = min(r["der"] for r in sonuc["tarama"] if r["yontem"] == y)
+        assert en_iyi < 0.3, y
+    # kenara düşen her durum uyarı olarak yazılır
+    for y, n in sonuc["genisletme"].items():
+        assert (n > 0) == any(u.startswith(f"{y}:") and "genişletildi" in u for u in sonuc["uyarilar"])
+
+
+def test_e2_mfcc_olcegi_uygulanir(ortam):
+    o = ortam
+    from src import oznitelik
+    olcek = oznitelik.olcek_hesapla([kayit_uret(i)["X_mfcc"] for i in range(6)])
+    loglar = []
+    ozet = toplu.deney_calistir(o["zip"], o["rttm"], o["kayitlar"], "E2", o["cikti"], o["onbellek"],
+                                esik=0.5, mfcc_olcek=olcek, log=loglar.append)
+    assert ozet["kayit_sayisi"] == 6 and any("MFCC genel ölçekli" in s for s in loglar)

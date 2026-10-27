@@ -48,7 +48,8 @@ COLLAR = 0.5
 TOLERANS_SN = 0.5
 PENCERE_SN = 1.5
 KAYDIRMA_SN = 0.75
-ESIK_IZGARASI = tuple(round(0.05 * i, 2) for i in range(1, 31))  # 0,05 .. 1,50
+YUZDELIK_SAYISI = 40     # veriden eşik ızgarası: birleşme yüksekliklerinin yüzdelikleri
+GENISLETME_TURU = 3      # en iyi eşik kenara düşerse en çok bu kadar genişletme
 HATA_GUNLUGU = "hata_gunlugu.txt"
 
 
@@ -127,6 +128,7 @@ class SesKaynagi:
         if kayit not in self._adlar:
             raise ValueError(f"{kayit}: zip içinde WAV yok")
         veri = self._zf.read(self._adlar[kayit])
+        ses_girdi.wav_denetle(veri, f"{kayit}.wav")  # kesik WAV sessizce kısaltılıp okunmasın
         import soundfile as sf
 
         try:
@@ -360,11 +362,13 @@ def ozet_tablosu(yol: str) -> str:
 
 def deney_calistir(zip_yol: str, rttm_dizin: str, kayitlar: list[str], deney: str, cikti_dizin: str,
                    onbellek: str, esik: float | None = None, model_yolu: str | None = None,
-                   log=_yaz) -> dict:
+                   mfcc_olcek: dict | None = None, log=_yaz) -> dict:
     """Bir deneyi kayıtlar üzerinde çalıştırır; RTTM, kayıt CSV'si ve ozet.csv yazar.
 
     Önceden CSV'de olan kayıtlar atlanır. esik: E2/E4/E5 için AHC eşiği (None ->
-    VARSAYILAN_ESIK). Dönüş: özet sözlüğü (+ "hatali": bu çalıştırmada hata veren kayıt sayısı).
+    VARSAYILAN_ESIK). mfcc_olcek: E1/E2'de kümelemeden önce uygulanan genel MFCC
+    ölçeği (esikler.json "mfcc_olcek"; None ise ham MFCC, uyarı yazılır). E5 ölçeği
+    model paketinden alır. Dönüş: özet sözlüğü (+ "hatali": bu çalıştırmada hata veren kayıt sayısı).
     Hata: ValueError (bilinmeyen deney, E5'te model yok).
     """
     if deney not in DENEYLER:
@@ -384,6 +388,10 @@ def deney_calistir(zip_yol: str, rttm_dizin: str, kayitlar: list[str], deney: st
     bekleyen = [k for k in kayitlar if k not in yapilan]
     esik_metni = "sayı referanstan" if kip == "sayi" else (
         f"eşik {esik}" if esik is not None else f"eşik VARSAYILAN_ESIK={kumeleme.VARSAYILAN_ESIK}")
+    if yontem == "mfcc" and kip != "model":
+        esik_metni += ", MFCC genel ölçekli" if mfcc_olcek else ", ham MFCC"
+        if not mfcc_olcek:
+            log("UYARI: MFCC ölçeği verilmedi (esikler.json 'mfcc_olcek'); ham MFCC kümelenecek")
     log(f"{deney} ({yontem}, {esik_metni}): {len(kayitlar)} kayıt, "
         f"{len(kayitlar) - len(bekleyen)} önceden yapılmış, {len(bekleyen)} kaldı")
 
@@ -402,7 +410,10 @@ def deney_calistir(zip_yol: str, rttm_dizin: str, kayitlar: list[str], deney: st
                     sayi = None
                     if kip == "sayi":
                         sayi = len({e for _, _, e in cikti.rttm_oku(ref_yol)}) or None
-                    segler = ana.hat_segmentleri(oz["bolgeler"], oz[yontem]["pencereler"], oz[yontem]["X"],
+                    X = oz[yontem]["X"]
+                    if yontem == "mfcc":
+                        X = oznitelik.olcekle(X, mfcc_olcek)
+                    segler = ana.hat_segmentleri(oz["bolgeler"], oz[yontem]["pencereler"], X,
                                                  sayi, esik if kip == "esik" else None)
                 hyp_yol = os.path.join(rttm_klasor, f"{kayit}.rttm")
                 cikti.rttm_yaz(segler, kayit, hyp_yol)
@@ -436,82 +447,177 @@ def deney_calistir(zip_yol: str, rttm_dizin: str, kayitlar: list[str], deney: st
 # Eşik taraması
 # ---------------------------------------------------------------------------
 
-def esik_tara(zip_yol: str, rttm_dizin: str, kayitlar: list[str], onbellek: str,
-              yontemler=("mfcc", "ecapa"), izgara=ESIK_IZGARASI, gunluk_dizin: str | None = None,
-              log=_yaz) -> dict:
-    """AHC eşiğini ızgarada tarar; her yöntem için toplam DER'i en düşük eşiği seçer.
+def yuzdelik_izgarasi(yukseklikler, n: int = YUZDELIK_SAYISI) -> list[float]:
+    """AHC birleşme yüksekliklerinden aday eşikler.
 
-    Bağlantı ağacı kayıt başına bir kez kurulur, her eşikte yalnızca kesilir.
-    Eşitlikte büyük eşik (daha az küme) seçilir. Dönüş (esikler.json içeriği):
-    {"mfcc": x, "ecapa": y, "tarama": [...], "izgara": [...], "kayit_sayisi": n,
-     "hatali": {...}, "uyarilar": [...], "tarih": "..."}.
+    %1 ile %99 arasında n yüzdelik; üst uca doğru sıklaşır (q = 100 - geomspace(99, 1, n)),
+    çünkü konuşmacılar arası birleşmeler her kaydın en yüksek birkaç birleşmesidir.
     """
+    h = np.asarray(yukseklikler, dtype=np.float64)
+    if h.size == 0:
+        return []
+    q = 100 - np.geomspace(99, 1, n)
+    return sorted({round(float(v), 5) for v in np.percentile(h, q)})
+
+
+def _genislet(izgara: list[float], yukseklikler, kenar: str, tur: int) -> list[float]:
+    """Kenara düşen ızgarayı o yönde genişletir (yalnızca yeni değerler döner)."""
+    h = np.asarray(yukseklikler, dtype=np.float64)
+    if kenar == "alt":
+        uc = izgara[0]
+        if tur == 0:
+            yeni = list(np.percentile(h, np.geomspace(1, 0.01, 8))) + [float(h.min()) * 0.9]
+        else:
+            yeni = [uc * f for f in (0.8, 0.6, 0.4)]
+        yeni = [v for v in yeni if 0 < v < uc - 1e-9]
+    else:
+        uc = izgara[-1]
+        if tur == 0:
+            yeni = list(np.percentile(h, 100 - np.geomspace(1, 0.01, 8))) + [float(h.max()) * 1.01]
+        else:
+            yeni = [min(2.0, uc * f) for f in (1.1, 1.25, 1.5)]
+        yeni = [v for v in yeni if v > uc + 1e-9]
+    return sorted({round(float(v), 5) for v in yeni})
+
+
+def _tara(veriler: list[dict], izgara, topla: dict, log, etiket: str) -> None:
+    """Her kayıt ve her eşik için DER bileşenlerini topla[t]'ye ekler (kayıt başı önbellekli)."""
     from scipy.cluster.hierarchy import fcluster
 
-    izgara = [float(t) for t in izgara]
+    t_bas = time.perf_counter()
+    for i, v in enumerate(veriler, 1):
+        for t in izgara:
+            if v["sabit"] is not None:
+                anahtar, segler = b"sabit", v["sabit"]
+            else:
+                et = kumeleme._yeniden_numarala(fcluster(v["Z"], t=t, criterion="distance"))
+                anahtar, segler = et.tobytes(), None
+            if anahtar not in v["bellek"]:  # aynı etiketler -> aynı sonuç
+                if segler is None:
+                    segler = cikti.segmentleri_birlestir(v["P"], et)
+                v["bellek"][anahtar] = degerlendirme._segmentleri_degerlendir(
+                    v["ref"], segler, COLLAR, TOLERANS_SN)
+            s = v["bellek"][anahtar]
+            a = topla.setdefault(t, {"hata": 0.0, "ref": 0.0, "tp": 0, "fp": 0, "fn": 0, "jer": []})
+            a["hata"] += s["yanlis_alarm_sn"] + s["kacirilan_sn"] + s["karisiklik_sn"]
+            a["ref"] += s["referans_sn"]
+            a["tp"] += s["tp"]
+            a["fp"] += s["fp"]
+            a["fn"] += s["fn"]
+            if not math.isnan(s["jer"]):
+                a["jer"].append(s["jer"])
+        if i % 10 == 0 or i == len(veriler):
+            gecen = time.perf_counter() - t_bas
+            log(f"[{etiket} {i}/{len(veriler)}] {len(izgara)} eşik  geçen {_sure(gecen)}  "
+                f"kalan ~{_sure(gecen / i * (len(veriler) - i))}")
+
+
+def _satir(yontem: str, t: float, a: dict) -> dict:
+    return {"yontem": yontem, "esik": t,
+            "der": a["hata"] / a["ref"] if a["ref"] > 0 else math.nan,
+            "jer_ort": float(np.mean(a["jer"])) if a["jer"] else math.nan,
+            "mikro_f1": degisim_modeli._mikro_f1(a["tp"], a["fp"], a["fn"])}
+
+
+def _en_iyi(satirlar: list[dict]) -> dict:
+    """En düşük toplam DER; eşitlikte büyük eşik (daha az küme)."""
+    return min(satirlar, key=lambda r: (np.nan_to_num(r["der"], nan=np.inf), -r["esik"]))
+
+
+def esik_tara(zip_yol: str, rttm_dizin: str, kayitlar: list[str], onbellek: str,
+              yontemler=("mfcc", "ecapa"), izgara=None, gunluk_dizin: str | None = None,
+              log=_yaz) -> dict:
+    """AHC eşiğini tarar; her yöntem için toplam DER'i en düşük eşiği seçer (eğitim yarısı).
+
+    izgara None ise aday eşikler veriden üretilir: yöntem başına tüm kayıtların AHC
+    birleşme yüksekliklerinin YUZDELIK_SAYISI yüzdeliği (%1-%99, üst uca doğru sık).
+    En iyi eşik ızgaranın kenarına düşerse o yönde genişletilip yeniden taranır (en çok
+    GENISLETME_TURU kez) ve uyarı yazılır. izgara verilirse yalnızca o değerler taranır.
+    MFCC, eğitim kayıtlarının tüm pencerelerinden hesaplanan genel ortalama/std ile
+    standartlaştırılır (oznitelik.olcek_hesapla); istatistik sonuçta "mfcc_olcek" alanındadır.
+    Bağlantı ağacı kayıt başına bir kez kurulur, her eşikte yalnızca kesilir.
+    Dönüş (esikler.json içeriği): {"mfcc", "ecapa", "mfcc_olcek", "tarama": [...],
+    "izgara": {yontem: [...]}, "genisletme": {yontem: n}, "kayit_sayisi", "hatali", "uyarilar",
+    "collar", "tarih"}.
+    Hata: ValueError (bir yöntem için hiç kayıt işlenemedi).
+    """
     gunluk_dizin = gunluk_dizin or onbellek
-    sonuc = {"izgara": izgara, "kayit_sayisi": len(kayitlar), "tarama": [], "hatali": {},
-             "uyarilar": [], "collar": COLLAR, "tarih": datetime.datetime.now().isoformat(timespec="seconds")}
+    sonuc = {"kayit_sayisi": len(kayitlar), "mfcc_olcek": None, "tarama": [], "izgara": {},
+             "genisletme": {}, "hatali": {}, "uyarilar": [], "collar": COLLAR,
+             "tarih": datetime.datetime.now().isoformat(timespec="seconds")}
     for yontem in yontemler:
-        topla = {t: {"hata": 0.0, "ref": 0.0, "tp": 0, "fp": 0, "fn": 0, "jer": []} for t in izgara}
-        hatali, t_bas = 0, time.perf_counter()
+        # 1) Önbellekten kayıtları topla
+        veriler, hatali = [], 0
         with SesKaynagi(zip_yol) as kaynak:
             for i, kayit in enumerate(kayitlar, 1):
                 try:
                     ref = cikti.rttm_oku(_referans_yolu(rttm_dizin, kayit))
                     oz = ozellik_al(kaynak, kayit, onbellek, (yontem,))
-                    bolgeler, P, X = oz["bolgeler"], oz[yontem]["pencereler"], oz[yontem]["X"]
-                    sabit = None
-                    if not bolgeler or ana.kisa_konusma(bolgeler) or len(P) < 2:
-                        sabit = ana.hat_segmentleri(bolgeler, P, X, None, None)  # eşikten bağımsız
-                    else:
-                        Z = kumeleme._baglanti(X)
-                    bellek: dict = {}
-                    sonuclar = {}
-                    for t in izgara:
-                        if sabit is not None:
-                            anahtar, segler = b"sabit", sabit
-                        else:
-                            et = kumeleme._yeniden_numarala(fcluster(Z, t=t, criterion="distance"))
-                            anahtar, segler = et.tobytes(), None
-                        if anahtar not in bellek:  # aynı etiketler -> aynı sonuç
-                            if segler is None:
-                                segler = cikti.segmentleri_birlestir(P, et)
-                            bellek[anahtar] = degerlendirme._segmentleri_degerlendir(
-                                ref, segler, COLLAR, TOLERANS_SN)
-                        sonuclar[t] = bellek[anahtar]
-                    for t, s in sonuclar.items():  # kayıt tamamsa topla
-                        a = topla[t]
-                        a["hata"] += s["yanlis_alarm_sn"] + s["kacirilan_sn"] + s["karisiklik_sn"]
-                        a["ref"] += s["referans_sn"]
-                        a["tp"] += s["tp"]
-                        a["fp"] += s["fp"]
-                        a["fn"] += s["fn"]
-                        if not math.isnan(s["jer"]):
-                            a["jer"].append(s["jer"])
-                    bilgi = f"{len(P)} pencere"
+                    veriler.append({"kayit": kayit, "ref": ref, "bolgeler": oz["bolgeler"],
+                                    "P": oz[yontem]["pencereler"], "X": oz[yontem]["X"], "bellek": {}})
                 except Exception as e:
                     hatali += 1
                     _hata_yaz(gunluk_dizin, f"esik-tara-{yontem}", kayit, e)
-                    bilgi = f"HATA {type(e).__name__}: {e}"
-                gecen = time.perf_counter() - t_bas
-                log(f"[{yontem} {i}/{len(kayitlar)}] {kayit}  {bilgi}  geçen {_sure(gecen)}  "
-                    f"kalan ~{_sure(gecen / i * (len(kayitlar) - i))}")
-        satirlar = []
-        for t in izgara:
-            a = topla[t]
-            satirlar.append({"yontem": yontem, "esik": t,
-                             "der": a["hata"] / a["ref"] if a["ref"] > 0 else math.nan,
-                             "jer_ort": float(np.mean(a["jer"])) if a["jer"] else math.nan,
-                             "mikro_f1": degisim_modeli._mikro_f1(a["tp"], a["fp"], a["fn"])})
-        en_iyi = min(satirlar, key=lambda r: (np.nan_to_num(r["der"], nan=np.inf), -r["esik"]))
-        sonuc[yontem] = en_iyi["esik"]
+                    log(f"  HATA {kayit}: {type(e).__name__}: {e}")
         sonuc["hatali"][yontem] = hatali
+        if not veriler:
+            raise ValueError(f"{yontem}: eşik taraması için işlenebilen kayıt yok")
+        log(f"{yontem}: {len(veriler)} kayıt yüklendi ({hatali} hatalı)")
+
+        # 2) MFCC genel standartlaştırma (eğitim yarısının tüm pencereleri)
+        olcek = None
+        if yontem == "mfcc":
+            olcek = oznitelik.olcek_hesapla([v["X"] for v in veriler])
+            sonuc["mfcc_olcek"] = olcek
+            log(f"mfcc: genel ölçek {olcek['pencere_sayisi']} pencereden hesaplandı")
+
+        # 3) Kayıt başına bağlantı ağacı
+        yukseklikler = []
+        for v in veriler:
+            X = oznitelik.olcekle(v["X"], olcek)
+            v["sabit"], v["Z"] = None, None
+            if not v["bolgeler"] or ana.kisa_konusma(v["bolgeler"]) or len(v["P"]) < 2:
+                v["sabit"] = ana.hat_segmentleri(v["bolgeler"], v["P"], X, None, None)  # eşikten bağımsız
+            else:
+                v["Z"] = kumeleme._baglanti(X)
+                yukseklikler.append(v["Z"][:, 2])
+            v["X"] = None  # bellek
+        yukseklikler = np.concatenate(yukseklikler) if yukseklikler else np.zeros(0)
+
+        # 4) Tara; kenara düşerse genişlet
+        aday = sorted(float(t) for t in izgara) if izgara is not None else yuzdelik_izgarasi(yukseklikler)
+        if not aday:
+            aday = [kumeleme.VARSAYILAN_ESIK]
+        topla: dict = {}
+        _tara(veriler, aday, topla, log, yontem)
+        genisletme = 0
+        while izgara is None and yukseklikler.size and genisletme < GENISLETME_TURU:
+            sirali = sorted(topla)
+            en_iyi = _en_iyi([_satir(yontem, t, topla[t]) for t in sirali])["esik"]
+            kenar = "alt" if en_iyi == sirali[0] else "ust" if en_iyi == sirali[-1] else None
+            if kenar is None:
+                break
+            yeni = _genislet(sirali, yukseklikler, kenar, genisletme)
+            if not yeni:
+                break
+            genisletme += 1
+            uyari = (f"{yontem}: en iyi eşik ({en_iyi}) ızgaranın {'alt' if kenar == 'alt' else 'üst'} "
+                     f"kenarındaydı; {len(yeni)} yeni değerle genişletildi (tur {genisletme})")
+            sonuc["uyarilar"].append(uyari)
+            log(f"UYARI: {uyari}")
+            _tara(veriler, yeni, topla, log, f"{yontem} genişletme {genisletme}")
+        sirali = sorted(topla)
+        satirlar = [_satir(yontem, t, topla[t]) for t in sirali]
+        en_iyi = _en_iyi(satirlar)
+        if len(sirali) > 1 and en_iyi["esik"] in (sirali[0], sirali[-1]):
+            sonuc["uyarilar"].append(f"{yontem}: en iyi eşik hâlâ ızgaranın kenarında ({en_iyi['esik']})")
+        sonuc[yontem] = en_iyi["esik"]
+        sonuc["izgara"][yontem] = sirali
+        sonuc["genisletme"][yontem] = genisletme
         sonuc["tarama"] += satirlar
-        if en_iyi["esik"] in (izgara[0], izgara[-1]):
-            sonuc["uyarilar"].append(f"{yontem}: en iyi eşik ızgaranın kenarında ({en_iyi['esik']})")
-        log(f"{yontem}: en iyi eşik {en_iyi['esik']:.2f}  DER {en_iyi['der']:.4f}  "
-            f"JER {en_iyi['jer_ort']:.4f}  mikro F1 {en_iyi['mikro_f1']:.4f}  ({hatali} hatalı kayıt)")
+        log(f"{yontem}: en iyi eşik {en_iyi['esik']:.5f}  DER {en_iyi['der']:.4f}  "
+            f"JER {en_iyi['jer_ort']:.4f}  mikro F1 {en_iyi['mikro_f1']:.4f}  "
+            f"({len(sirali)} aday, aralık {sirali[0]:.4f}-{sirali[-1]:.4f})")
     for u in sonuc["uyarilar"]:
         log(f"UYARI: {u}")
     return sonuc
@@ -547,24 +653,34 @@ def esikleri_oku(yol: str) -> dict:
 
 def model_egit(zip_yol: str, rttm_dizin: str, kayitlar: list[str], onbellek: str, model_yolu: str,
                gunluk_dizin: str | None = None, log=_yaz) -> dict:
-    """Eğitim yarısının önbelleğinden değişim modelini eğitir ve model_yolu'na kaydeder."""
+    """Eğitim yarısının önbelleğinden değişim modelini eğitir ve model_yolu'na kaydeder.
+
+    MFCC özelliği (mfcc_cos), eğitim kayıtlarının tüm MFCC pencerelerinden hesaplanan
+    genel ölçekle standartlaştırılır; ölçek pakete "mfcc_olcek" olarak yazılır ve tahminde
+    (E5) aynısı kullanılır. Aynı eğitim listesiyle esik_tara'nın ölçeğiyle aynıdır.
+    """
     gunluk_dizin = gunluk_dizin or onbellek
-    veriler = []
+    hamlar = []
     with SesKaynagi(zip_yol) as kaynak:
         for i, kayit in enumerate(kayitlar, 1):
             try:
                 ref = cikti.rttm_oku(_referans_yolu(rttm_dizin, kayit))
                 oz = ozellik_al(kaynak, kayit, onbellek, ("ecapa", "mfcc"))
-                P = oz["ecapa"]["pencereler"]
-                if len(P) >= 2:
-                    veriler.append(degisim_modeli.kayit_verisi(
-                        kayit, P, oz["ecapa"]["X"], oz["mfcc"]["X"], oz["bolgeler"], ref))
+                hamlar.append((kayit, ref, oz))
             except Exception as e:
                 _hata_yaz(gunluk_dizin, "model-egit", kayit, e)
                 log(f"  HATA {kayit}: {type(e).__name__}: {e}")
             if i % 20 == 0 or i == len(kayitlar):
                 log(f"  veri hazırlığı {i}/{len(kayitlar)}")
+    olcek = oznitelik.olcek_hesapla([oz["mfcc"]["X"] for _, _, oz in hamlar])
+    veriler = []
+    for kayit, ref, oz in hamlar:
+        P = oz["ecapa"]["pencereler"]
+        if len(P) >= 2:
+            veriler.append(degisim_modeli.kayit_verisi(
+                kayit, P, oz["ecapa"]["X"], oznitelik.olcekle(oz["mfcc"]["X"], olcek), oz["bolgeler"], ref))
     paket = degisim_modeli.egit(veriler, log=log)
+    paket["mfcc_olcek"] = olcek
     degisim_modeli.kaydet(paket, model_yolu)
     log(f"Model kaydedildi: {model_yolu}")
     return paket
@@ -613,10 +729,14 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if not a.cikti_dizin:
             ap.error("--deney için --cikti-dizin gerekli")
+        yontem, kip = DENEYLER[a.deney]
+        esikler = esikleri_oku(a.esikler) if a.esikler else {}
         esik = a.esik
-        if esik is None and a.esikler and DENEYLER[a.deney][1] != "sayi":
-            esik = esikleri_oku(a.esikler).get(DENEYLER[a.deney][0])
-        s = deney_calistir(a.zip, a.rttm_dizin, kayitlar, a.deney, a.cikti_dizin, a.onbellek, esik, a.model)
+        if esik is None and kip != "sayi":
+            esik = esikler.get(yontem)
+        olcek = esikler.get("mfcc_olcek") if yontem == "mfcc" else None
+        s = deney_calistir(a.zip, a.rttm_dizin, kayitlar, a.deney, a.cikti_dizin, a.onbellek, esik, a.model,
+                           mfcc_olcek=olcek)
         return 1 if s["hatali"] else 0
     except (FileNotFoundError, ValueError) as e:
         print(f"Girdi hatası: {e}", file=sys.stderr)

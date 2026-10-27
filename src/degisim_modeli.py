@@ -16,16 +16,16 @@ import math
 
 import numpy as np
 
-from . import cikti, kumeleme
+from . import cikti, kumeleme, oznitelik
 from . import main as ana
 from .degerlendirme import _degisim_eslestir
 
-OZELLIK_SURUMU = "v1"
+OZELLIK_SURUMU = "v2"  # v2: mfcc_cos genel ölçekli MFCC ile (paket["mfcc_olcek"])
 OZELLIKLER = (
     "ecapa_cos",           # cos(e_i, e_i+1)
     "ecapa_baglam_cos",    # cos(ort(e_i-k+1..e_i), ort(e_i+1..e_i+k))
     "ecapa_atlamali_cos",  # cos(e_i-1, e_i+2)
-    "mfcc_cos",            # cos(m_i, m_i+1)
+    "mfcc_cos",            # cos(m_i, m_i+1), m: genel ölçekli MFCC
     "bosluk_sn",           # s_i+1 - b_i (negatif = örtüşme)
     "ayni_bolge",          # iki pencere aynı VAD bölgesinde mi (0/1)
 )
@@ -360,9 +360,10 @@ def yukle(yol: str) -> dict:
 # ---------------------------------------------------------------------------
 
 def degisim_tahmin(paket: dict, pencereler, X_ecapa, X_mfcc, bolgeler) -> list[float]:
-    """Modelin değişim noktaları (sn, artan)."""
+    """Modelin değişim noktaları (sn, artan). X_mfcc ham verilir; paketteki genel ölçek uygulanır."""
     if len(pencereler) < 2:
         return []
+    X_mfcc = oznitelik.olcekle(X_mfcc, paket.get("mfcc_olcek"))
     F = ozellikler(pencereler, X_ecapa, X_mfcc, bolgeler, paket["baglam_k"])
     p = paket["model"].predict_proba(F)[:, 1]
     return tepeler(p, cift_zamanlari(pencereler), paket["olasilik_esigi"], paket["min_aralik_sn"])

@@ -140,6 +140,32 @@ def _ecapa_gomme(parcalar: list[np.ndarray]) -> np.ndarray:
     return X
 
 
+def olcek_hesapla(X_listesi) -> dict:
+    """Genel (tüm kayıtlar üzerinden) boyut başına ortalama ve standart sapma.
+
+    X_listesi: (N_i, D) matrisleri (ör. eğitim yarısının tüm MFCC pencereleri).
+    Dönüş: {"ortalama": [D], "std": [D], "pencere_sayisi": int}; std alt sınırı 1e-8.
+    Kayıt başına ortalama çıkarılmaz (tek konuşmacılı kayıtları bölebilir).
+    Hata: ValueError (hiç pencere yok).
+    """
+    dolu = [np.asarray(X, dtype=np.float64) for X in X_listesi if len(X)]
+    if not dolu:
+        raise ValueError("ölçek için hiç pencere yok")
+    T = np.vstack(dolu)
+    return {"ortalama": T.mean(axis=0).tolist(),
+            "std": np.maximum(T.std(axis=0), 1e-8).tolist(),
+            "pencere_sayisi": int(T.shape[0])}
+
+
+def olcekle(X: np.ndarray, olcek: dict | None) -> np.ndarray:
+    """X'i olcek_hesapla istatistikleriyle standartlaştırır (olcek None ise X değişmeden döner)."""
+    X = np.asarray(X, dtype=np.float32)
+    if olcek is None or len(X) == 0:
+        return X
+    return ((X - np.asarray(olcek["ortalama"], dtype=np.float32))
+            / np.asarray(olcek["std"], dtype=np.float32)).astype(np.float32)
+
+
 def vektorler(
     ses: np.ndarray,
     sr: int,
