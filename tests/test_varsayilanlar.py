@@ -22,12 +22,21 @@ def test_ayarlanmis_esikler():
         varsayilanlar.esik("xvector")
 
 
-def test_mfcc_olcegi_yer_tutucu_veya_gecerli():
+def test_mfcc_olcegi():
+    # Hafta 4 eğitim yarısı: 42520 MFCC penceresinden (defter 10. bölüm "REPO SABİTLERİ")
     olcek = varsayilanlar.mfcc_olcek()
-    if olcek is None:  # henüz doldurulmadı (defter 10. bölüm "REPO SABİTLERİ")
-        return
+    assert olcek is not None
     assert len(olcek["ortalama"]) == 26 and len(olcek["std"]) == 26
-    assert min(olcek["std"]) > 0
+    assert all(isinstance(v, float) for v in olcek["ortalama"] + olcek["std"])
+    assert all(s > 0 for s in olcek["std"])
+    assert olcek["pencere_sayisi"] == 42520
+    assert olcek["ortalama"][0] == pytest.approx(107.267103) and olcek["std"][-1] == pytest.approx(1.765113)
+
+
+def test_kaynak_ve_tarih():
+    veri = varsayilanlar.yukle()
+    assert veri["tarih"] == "2026-10-27T13:58:49"
+    assert "egitim.txt" in veri["kaynak"] and "not" not in veri
 
 
 def test_bozuk_dosya_reddedilir(tmp_path, monkeypatch):

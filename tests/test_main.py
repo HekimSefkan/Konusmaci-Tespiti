@@ -70,14 +70,22 @@ def test_mfcc_esigi_ve_olcegi(sahte_hat, tmp_path):
     from src import oznitelik, varsayilanlar
 
     olcek = varsayilanlar.mfcc_olcek()
-    if olcek is None:
-        with pytest.warns(UserWarning, match="MFCC ölçeği"):
-            ana.main([str(tmp_path / "x.wav"), "-o", str(tmp_path / "x.rttm"), "--yontem", "mfcc"])
-    else:
-        ana.main([str(tmp_path / "x.wav"), "-o", str(tmp_path / "x.rttm"), "--yontem", "mfcc"])
+    assert olcek is not None
+    ana.main([str(tmp_path / "x.wav"), "-o", str(tmp_path / "x.rttm"), "--yontem", "mfcc"])
     assert sahte_hat["yontem"] == "mfcc"
     assert sahte_hat["esik"] == varsayilanlar.esik("mfcc")
+    # repodaki genel ölçek uygulanır (ham MFCC değil)
     assert np.allclose(sahte_hat["X"], oznitelik.olcekle(sahte_hat["X_ham"], olcek))
+    assert not np.allclose(sahte_hat["X"], sahte_hat["X_ham"])
+
+
+def test_mfcc_olcegi_yoksa_uyari(sahte_hat, tmp_path, monkeypatch):
+    from src import varsayilanlar
+
+    monkeypatch.setattr(varsayilanlar, "mfcc_olcek", lambda: None)
+    with pytest.warns(UserWarning, match="MFCC ölçeği"):
+        ana.main([str(tmp_path / "x.wav"), "-o", str(tmp_path / "x.rttm"), "--yontem", "mfcc"])
+    assert np.array_equal(sahte_hat["X"], sahte_hat["X_ham"])
 
 
 def test_esik_ve_konusmaci_sayisi_onceligi(sahte_hat, tmp_path):
