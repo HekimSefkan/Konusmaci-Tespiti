@@ -1,6 +1,6 @@
 """Ses okuma ve ön işleme. Sahibi: Abdullah. Sözleşme: docs/arayuz.md
 
-soundfile / librosa fonksiyon içinde import edilir; ön işleme (_on_isle)
+soundfile / librosa fonksiyon içinde import edilir; ön işleme (on_isle)
 yalnızca numpy + scipy kullanır.
 """
 import os
@@ -14,7 +14,7 @@ TEPE_SINIRI = 0.99
 DESTEKLENEN = (".wav", ".flac", ".mp3")
 
 
-def _on_isle(veri: np.ndarray, sr_girdi: int) -> np.ndarray:
+def on_isle(veri: np.ndarray, sr_girdi: int) -> np.ndarray:
     """Ham sesi hat biçimine getirir: mono, 16 kHz, RMS ~ -20 dBFS, tepe <= 0,99.
 
     Girdi: veri (n_ornek,) veya (n_ornek, kanal); sr_girdi (Hz).
@@ -84,6 +84,6 @@ def ses_yukle(yol: str) -> tuple[np.ndarray, int]:
             veri = veri.T
 
     try:
-        return _on_isle(veri, int(sr)), SR
+        return on_isle(veri, int(sr)), SR
     except ValueError as e:
         raise ValueError(f"{ad}: {e}") from e

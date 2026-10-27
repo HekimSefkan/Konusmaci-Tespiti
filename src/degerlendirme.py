@@ -4,6 +4,7 @@ pyannote.metrics fonksiyon içinde import edilir; modül yalnızca standart
 kütüphane ile import edilebilir.
 """
 import math
+from bisect import bisect_left, bisect_right
 
 from . import cikti
 
@@ -15,11 +16,15 @@ def _degisim_eslestir(ref: list[float], hyp: list[float], tolerans_sn: float) ->
     referansla eşleşir. |r - h| <= tolerans_sn olan çiftler mesafeye göre
     artan sırada (eşitlikte önce erken referans) açgözlü biçimde eşleşir.
     """
+    hyp_sirali = sorted(enumerate(hyp), key=lambda x: x[1])
+    zamanlar = [h for _, h in hyp_sirali]
+    pay = tolerans_sn + 1e-9
     ciftler = []
-    for i, r in enumerate(ref):
-        for j, h in enumerate(hyp):
+    for i, r in enumerate(ref):  # yalnızca tolerans penceresindeki tahminlere bak
+        for k in range(bisect_left(zamanlar, r - pay), bisect_right(zamanlar, r + pay)):
+            j, h = hyp_sirali[k]
             d = abs(r - h)
-            if d <= tolerans_sn + 1e-9:
+            if d <= pay:
                 ciftler.append((d, i, j))
     ciftler.sort()
     ref_kullanildi, hyp_kullanildi = set(), set()
@@ -61,8 +66,15 @@ def degerlendir(
     """
     if collar < 0 or tolerans_sn < 0:
         raise ValueError("collar ve tolerans_sn negatif olamaz")
-    ref = cikti.rttm_oku(ref_rttm)
-    hyp = cikti.rttm_oku(hyp_rttm)
+    return _segmentleri_degerlendir(cikti.rttm_oku(ref_rttm), cikti.rttm_oku(hyp_rttm), collar, tolerans_sn)
+
+
+def _segmentleri_degerlendir(ref, hyp, collar: float = 0.5, tolerans_sn: float = 0.5) -> dict:
+    """degerlendir'in bellek içi hâli: ref ve hyp [(bas_sn, bit_sn, etiket)] listeleri.
+
+    Dönüş ve tanımlar degerlendir ile aynıdır. Toplu eşik taramasında her eşik
+    için RTTM dosyası yazıp okumamak için kullanılır.
+    """
 
     # --- DER / JER (pyannote.metrics) ---
     sonuc = {

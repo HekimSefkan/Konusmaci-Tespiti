@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 
 from src import ses_girdi
-from src.ses_girdi import SR, _on_isle
+from src.ses_girdi import SR, on_isle
 
 
 def _sinus(sr, sure_sn=1.0, frekans=440.0, genlik=0.5):
@@ -15,22 +15,22 @@ def _dbfs(x):
     return 20 * np.log10(np.sqrt(np.mean(np.asarray(x, dtype=np.float64) ** 2)))
 
 
-# --- _on_isle (yerelde çalışır) ------------------------------------------
+# --- on_isle (yerelde çalışır) ------------------------------------------
 
 def test_mono_kanal_ortalamasi():
     sol = _sinus(SR)
     stereo = np.stack([sol, np.zeros_like(sol)], axis=1)
-    x = _on_isle(stereo, SR)
+    x = on_isle(stereo, SR)
     assert x.ndim == 1 and x.dtype == np.float32 and len(x) == SR
 
 
 def test_yeniden_ornekleme():
-    x = _on_isle(_sinus(44100, sure_sn=2.0), 44100)
+    x = on_isle(_sinus(44100, sure_sn=2.0), 44100)
     assert len(x) == 2 * SR
 
 
 def test_rms_normalizasyonu():
-    x = _on_isle(_sinus(SR, genlik=0.01), SR)
+    x = on_isle(_sinus(SR, genlik=0.01), SR)
     assert _dbfs(x) == pytest.approx(-20.0, abs=0.1)
     assert np.max(np.abs(x)) <= 0.99 + 1e-6
 
@@ -39,21 +39,21 @@ def test_tepe_siniri():
     # Seyrek darbe: -20 dBFS'e çekmek tepeyi 1'in üstüne çıkarırdı -> tepe 0,99'da kalır
     x = np.zeros(SR)
     x[::4000] = 1.0
-    y = _on_isle(x, SR)
+    y = on_isle(x, SR)
     assert np.max(np.abs(y)) == pytest.approx(0.99, abs=1e-4)
     assert _dbfs(y) < -20.0
 
 
 def test_sessiz_ses_degismez():
-    y = _on_isle(np.zeros(SR), SR)
+    y = on_isle(np.zeros(SR), SR)
     assert np.all(y == 0)
 
 
 def test_on_isle_hatalari():
     with pytest.raises(ValueError):
-        _on_isle(np.zeros(0), SR)
+        on_isle(np.zeros(0), SR)
     with pytest.raises(ValueError):
-        _on_isle(np.array([0.1, np.nan, 0.2]), SR)
+        on_isle(np.array([0.1, np.nan, 0.2]), SR)
 
 
 # --- ses_yukle hata yolları (yerelde çalışır) ----------------------------

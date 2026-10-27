@@ -39,20 +39,30 @@ def kumele(X: np.ndarray, konusmaci_sayisi: int | None = None, esik: float | Non
     if n == 1:
         return np.zeros(1, dtype=int)
 
-    from scipy.cluster.hierarchy import fcluster, linkage
-    from scipy.spatial.distance import squareform
+    from scipy.cluster.hierarchy import fcluster
 
-    # L2 normalizasyonu; sıfır vektör sıfır kalır (her şeye mesafesi 1 olur).
-    normlar = np.linalg.norm(X, axis=1, keepdims=True)
-    Xn = X / np.maximum(normlar, _EPS)
-    D = np.clip(1.0 - Xn @ Xn.T, 0.0, 2.0)  # kosinüs mesafesi
-    D = (D + D.T) / 2
-    np.fill_diagonal(D, 0.0)
-    Z = linkage(squareform(D, checks=False), method="average")
-
+    Z = _baglanti(X)
     if konusmaci_sayisi is not None:
         etiketler = fcluster(Z, t=konusmaci_sayisi, criterion="maxclust")
     else:
         t = VARSAYILAN_ESIK if esik is None else esik
         etiketler = fcluster(Z, t=t, criterion="distance")
     return _yeniden_numarala(etiketler)
+
+
+def _baglanti(X: np.ndarray) -> np.ndarray:
+    """L2 normalizasyonu + kosinüs mesafesi + ortalama bağlantı ağacı (N >= 2).
+
+    Eşik taramasında ağaç kayıt başına bir kez kurulup her eşikte yalnızca
+    kesilsin diye ayrı tutulur.
+    """
+    from scipy.cluster.hierarchy import linkage
+    from scipy.spatial.distance import squareform
+
+    X = np.asarray(X, dtype=np.float64)
+    # Sıfır vektör sıfır kalır (her şeye mesafesi 1 olur).
+    Xn = X / np.maximum(np.linalg.norm(X, axis=1, keepdims=True), _EPS)
+    D = np.clip(1.0 - Xn @ Xn.T, 0.0, 2.0)  # kosinüs mesafesi
+    D = (D + D.T) / 2
+    np.fill_diagonal(D, 0.0)
+    return linkage(squareform(D, checks=False), method="average")

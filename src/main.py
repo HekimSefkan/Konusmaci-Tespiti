@@ -12,24 +12,43 @@ from . import cikti, kumeleme, oznitelik, ses_girdi, vad
 MIN_KONUSMA_SN = 1.5  # bundan kısa toplam konuşmada uyarı verilir
 
 
+def kisa_konusma(bolgeler: list[tuple[float, float]]) -> bool:
+    """Toplam konuşma MIN_KONUSMA_SN'den kısa mı (kümeleme atlanır, tek konuşmacı)."""
+    return sum(b - a for a, b in bolgeler) < MIN_KONUSMA_SN
+
+
+def hat_segmentleri(bolgeler, pencereler, X, konusmaci_sayisi=None, esik=None):
+    """VAD bölgeleri, pencereler ve vektörlerden konuşmacı segmentlerini üretir.
+
+    Konuşma yoksa []. Toplam konuşma MIN_KONUSMA_SN'den kısaysa kümeleme
+    atlanır, her bölge "spk00" olur (pencereler ve X kullanılmaz). Aksi halde
+    kumele + segmentleri_birlestir. main ve toplu çalıştırma aynı kuralı
+    kullansın diye tek yerde durur.
+    """
+    if not bolgeler:
+        return []
+    if kisa_konusma(bolgeler):
+        return [(a, b, "spk00") for a, b in bolgeler]
+    etiketler = kumeleme.kumele(X, konusmaci_sayisi, esik)
+    return cikti.segmentleri_birlestir(pencereler, etiketler)
+
+
 def calistir(girdi: str, cikti_yolu: str, yontem: str, konusmaci_sayisi: int | None,
              esik: float | None = None) -> None:
     """Hattı sırayla çalıştırır ve RTTM yazar."""
     dosya_id = os.path.splitext(os.path.basename(girdi))[0]
     ses, sr = ses_girdi.ses_yukle(girdi)
     bolgeler = vad.konusma_bolgeleri(ses, sr)
-    if not bolgeler:  # sessiz dosya: boş RTTM
-        cikti.rttm_yaz([], dosya_id, cikti_yolu)
-        return
-    if sum(b - a for a, b in bolgeler) < MIN_KONUSMA_SN:
+    pencereler, X = [], None
+    if bolgeler and kisa_konusma(bolgeler):
         warnings.warn(f"{girdi}: konuşma {MIN_KONUSMA_SN} sn'den kısa; tek konuşmacı varsayıldı")
-        segmentler = [(a, b, "spk00") for a, b in bolgeler]
-    else:
+    elif bolgeler:
         pencereler = oznitelik.pencerele(bolgeler)
         X = oznitelik.vektorler(ses, sr, pencereler, yontem)
-        etiketler = kumeleme.kumele(X, konusmaci_sayisi, esik)
-        segmentler = cikti.segmentleri_birlestir(pencereler, etiketler)
+    segmentler = hat_segmentleri(bolgeler, pencereler, X, konusmaci_sayisi, esik)
     cikti.rttm_yaz(segmentler, dosya_id, cikti_yolu)
+    if not segmentler:  # sessiz dosya: boş RTTM
+        return
     print(cikti.tablo_yazdir(segmentler))
     print("Değişim noktaları (sn):", cikti.degisim_noktalari(segmentler))
 
