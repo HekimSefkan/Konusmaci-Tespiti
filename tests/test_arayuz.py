@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 
 # modül -> {fonksiyon: parametre adları}  (docs/arayuz.md ile aynı olmalı)
 SOZLESME = {
-    "src.ses_girdi": {"ses_yukle": ["yol"], "on_isle": ["veri", "sr_girdi"], "wav_denetle": ["kaynak", "ad"]},
+    "src.ses_girdi": {"ses_yukle": ["yol", "maks_sure_sn"], "on_isle": ["veri", "sr_girdi"], "wav_denetle": ["kaynak", "ad"]},
     "src.vad": {"konusma_bolgeleri": ["ses", "sr"]},
     "src.oznitelik": {
         "pencerele": ["bolgeler", "pencere_sn", "kaydirma_sn"],

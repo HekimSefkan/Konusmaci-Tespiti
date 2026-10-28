@@ -39,11 +39,12 @@ Zaman her yerde **saniye** (float). Sıralama her listede zamana göredir.
 ### 3.1 `src/ses_girdi.py` (sahibi: Abdullah)
 
 ```python
-ses_yukle(yol: str) -> tuple[np.ndarray, int]
+ses_yukle(yol: str, maks_sure_sn: float | None = MAKS_SURE_SN) -> tuple[np.ndarray, int]
 ```
 - `yol`: wav/mp3/flac dosya yolu.
 - Dönüş: `(ses, 16000)`; ses mono (kanal ortalaması), `float32`, şekil `(n_ornek,)`, RMS yaklaşık -20 dBFS. Tepe değer 0,99'u geçmez (gerekirse RMS -20 dBFS'in altında kalır). wav/flac `soundfile`, mp3 `librosa` ile okunur; 16 kHz dışındaki sesler yeniden örneklenir. Sessiz (sıfır) ses hata değildir, değiştirilmeden döner.
-- Hata: `FileNotFoundError` (dosya yok), `ValueError` (bozuk veya desteklenmeyen biçim; mesajda dosya adı geçer).
+- `maks_sure_sn`: en uzun girdi süresi (sn); varsayılan `MAKS_SURE_SN = 1800`, `None` = sınırsız. Süre mümkünse dosya okunmadan başlıktan denetlenir (wav: RIFF başlığı, `wav_denetle`; flac: `soundfile.info`; mp3: `librosa.get_duration`), okumadan sonra gerçek uzunlukla bir kez daha.
+- Hata: `FileNotFoundError` (dosya yok), `ValueError` (bozuk veya desteklenmeyen biçim, ya da süre sınırı aşıldı: `"<ad>: süre <s> sn, en fazla <m> sn kabul ediliyor"`; mesajda dosya adı geçer).
 
 ```python
 on_isle(veri: np.ndarray, sr_girdi: int) -> np.ndarray
@@ -153,7 +154,9 @@ degerlendir(ref_rttm: str, hyp_rttm: str, collar: float = 0.5, tolerans_sn: floa
 ```python
 main(argv: list[str] | None = None) -> int
 ```
-Komut satırı: `python -m src.main <girdi_ses> -o <cikti.rttm> [--yontem ecapa|mfcc] [--konusmaci-sayisi N] [--esik E]`
+Komut satırı: `python -m src.main <girdi_ses> -o <cikti.rttm> [--yontem ecapa|mfcc] [--konusmaci-sayisi N] [--esik E] [--maks-sure SN]`
+
+- `--maks-sure`: en uzun girdi süresi (sn), varsayılan `ses_girdi.MAKS_SURE_SN` (1800); `0` = sınırsız. Aşan dosya çıkış kodu 1 verir (mesajda dosya adı ve süre).
 
 - `--yontem`: varsayılan **`ecapa`** (Hafta 4 değerlendirme yarısında en iyi sonuç: E4, DER 0,061). `mfcc` seçenek olarak kalır.
 - `--esik`: AHC kosinüs mesafesi eşiği. Verilmezse (ve `--konusmaci-sayisi` yoksa) yöntemin ayarlanmış eşiği kullanılır: `varsayilanlar.esik(yontem)` (ecapa 0,79346, mfcc 0,77122). `--konusmaci-sayisi` verilirse eşik kullanılmaz.
@@ -225,7 +228,7 @@ ozet_yaz(yol: str, ozet: dict) -> None
 listeleri_oku(yollar: list[str]) -> list[str]
 main(argv: list[str] | None = None) -> int
 ```
-- **Ses okuma:** WAV zip'ten `ZipFile.read` ile belleğe alınır ve `soundfile` ile `BytesIO`'dan okunur; zip açılmaz. Okunamazsa geçici dosyaya yazılıp `ses_yukle` ile okunur ve silinir. Ön işleme `ses_girdi.on_isle` ile `ses_yukle` ile aynıdır.
+- **Ses okuma:** WAV zip'ten `ZipFile.read` ile belleğe alınır ve `soundfile` ile `BytesIO`'dan okunur; zip açılmaz. Okunamazsa geçici dosyaya yazılıp `ses_yukle` ile okunur ve silinir. Ön işleme `ses_girdi.on_isle` ile `ses_yukle` ile aynıdır. **Süre sınırı (`MAKS_SURE_SN`) uygulanmaz:** toplu iş bilinen bir veri kümesini işler (VoxConverse dev'de en uzun kayıt ~1100 sn).
 - **Önbellek:** `{onbellek}/<tur>/<anahtar>/<kayit>.npz`, `tur` ∈ {`vad`, `mfcc`, `ecapa`}. `<anahtar>` hesaplamayı etkileyen parametreleri içerir (ör. `p1.5_k0.75_v250_s300_mfcc13c1_f512_w400_h160`); her anahtar klasöründe `parametreler.json` durur. `vad` dosyası: `bolgeler (K, 2)`, `ses_sn`, `sure_sn`. `mfcc`/`ecapa` dosyası: `pencereler (N, 2)`, `X (N, D) float32`, `sure_sn`. Dosya önce geçici adla yazılıp `os.replace` ile konur; yarım dosya geçerli sayılmaz, okunamayan dosya yeniden hesaplanır.
 - **Kayıt CSV'si** `{cikti}/<deney>.csv`, ilk beş sütun sabit: `deney, kayit, der, jer, f1`; ardından `precision, recall, tp, fp, fn, yanlis_alarm_sn, kacirilan_sn, karisiklik_sn, referans_sn, ses_sn, sure_sn`. `sure_sn` = öznitelik hesaplama süresi (önbellekte saklı) + deneyin kendi süresi. Hipotez RTTM'leri `{cikti}/<deney>/<kayit>.rttm`. CSV'de olan kayıtlar yeniden çalıştırmada atlanır. Değerlendirme `collar=0.5`, `tolerans_sn=0.5`.
 - **Özet** `{cikti}/ozet.csv` sütunları: `deney, kayit_sayisi, der, jer_ort, mikro_f1, toplam_sure_sn, toplam_ses_sn, atlanan`. `der` = Σ(yanlış alarm + kaçırılan + karışıklık) / Σ `referans_sn`; `jer_ort` NaN'lar dışarıda ortalama; `mikro_f1` Σtp/Σfp/Σfn'den. Aynı deneyin satırı yeniden çalıştırmada değiştirilir.
@@ -298,7 +301,7 @@ sonuc_grafigi(csv_yolu: str | list[str], png_yolu: str) -> str
 - **Sessiz dosya:** `konusma_bolgeleri` `[]` döner, `main` boş RTTM yazar, çıkış kodu 0.
 - **Bozuk veya desteklenmeyen dosya:** `ses_yukle` `ValueError` fırlatır (dosya yoksa `FileNotFoundError`); `main` çıkış kodu 1 ile döner ve mesajda dosya adı bulunur.
 - **Örtüşen konuşma:** İlk sürümde tespit edilmez; her segment tek konuşmacıya atanır. Bilinen sınırlamadır.
-- **Maksimum süre (300 sn):** Açık nokta, ekip toplantısında karara bağlanacak.
+- **Maksimum süre (karar verildi):** Sınır yapılandırılabilir, varsayılan **1800 sn** (`ses_girdi.MAKS_SURE_SN`, `ses_yukle(..., maks_sure_sn=...)`, `python -m src.main --maks-sure SN`, `0` = sınırsız). Gerekçe: VoxConverse dev kayıtlarının ortalaması yaklaşık 335 sn, en uzunu yaklaşık 1100 sn (önbellek koşusunda ldnro 1097 sn); 1800 sn bunları rahatça kapsar ve yanlışlıkla verilen saatlerce uzun dosyaları (bellek ve süre) erkenden reddeder. Aşan dosya `ValueError`, çıkış kodu 1. Toplu çalıştırma (`src/toplu.py`) ve VAD ölçümü (`src/vad_olcum.py`) sınırı uygulamaz.
 
 ## 5. Değişiklik kuralı
 
