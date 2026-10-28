@@ -122,3 +122,76 @@ def test_webrtc_bolgeleri():
     for agresiflik in (2, 3):
         b = vad_olcum.webrtc_bolgeleri(x, sr, agresiflik)
         assert b == sorted(b) and all(0 <= a < c <= 4.0 for a, c in b)
+
+
+# --- A-3: kaba SNR ve dinleme parçaları ------------------------------------
+
+def _ton_gurultu(gurultu, sure_sn=10.0, sr=16000, konusma=((2.0, 8.0),), seed=0):
+    r = np.random.default_rng(seed)
+    t = np.arange(int(sure_sn * sr)) / sr
+    x = gurultu * r.normal(size=t.size)
+    for a, b in konusma:
+        m = (t >= a) & (t < b)
+        x[m] += 0.3 * np.sin(2 * np.pi * 200 * t[m])
+    return x.astype(np.float32)
+
+
+def test_snr_tahmini():
+    sr = 16000
+    x = _ton_gurultu(0.01)
+    snr, konusmasiz = vad_olcum.snr_tahmini(x, sr, [(2.0, 8.0)])
+    beklenen = 10 * np.log10((0.01 ** 2 + 0.3 ** 2 / 2) / 0.01 ** 2)
+    assert konusmasiz == pytest.approx(4.0) and snr == pytest.approx(beklenen, abs=0.3)
+    assert vad_olcum.snr_tahmini(_ton_gurultu(0.1), sr, [(2.0, 8.0)])[0] < snr  # daha gürültülü -> daha düşük
+
+
+def test_snr_nan_durumlari():
+    sr = 16000
+    x = _ton_gurultu(0.01)
+    snr, konusmasiz = vad_olcum.snr_tahmini(x, sr, [(0.5, 9.6)])   # konuşmasız 0,9 sn < 1,0
+    assert np.isnan(snr) and konusmasiz == pytest.approx(0.9)
+    assert np.isnan(vad_olcum.snr_tahmini(x, sr, [])[0])             # konuşma yok
+    assert np.isnan(vad_olcum.snr_tahmini(np.zeros(sr * 5), sr, [(1.0, 2.0)])[0])  # güç 0
+
+
+def test_dinleme_parcasi():
+    # en uzun sessizlik 20-30 arası -> konuşma başlangıcı 30 ortalanır
+    assert vad_olcum.dinleme_parcasi([(1.0, 20.0), (30.0, 50.0), (52.0, 60.0)], 60.0) == (25.0, 35.0)
+    # baştaki sessizlik en uzunsa ilk konuşma başlangıcı; sınırda kaydırılır
+    assert vad_olcum.dinleme_parcasi([(3.0, 9.0)], 12.0) == (0.0, 10.0)
+    assert vad_olcum.dinleme_parcasi([(40.0, 59.0)], 60.0) == (35.0, 45.0)
+    assert vad_olcum.dinleme_parcasi([], 60.0) == (0.0, 10.0)
+    assert vad_olcum.dinleme_parcasi([(1.0, 3.0)], 4.0) == (0.0, 4.0)  # dosya parçadan kısa
+
+
+def test_olc_snr_ve_dinleme(tmp_path, monkeypatch):
+    rttm = tmp_path / "rttm"
+    rttm.mkdir()
+    gurultuler = {"temiz": 0.001, "orta": 0.02, "gurultulu": 0.08, "kisa_sessiz": 0.05}
+    for k in gurultuler:
+        cikti.rttm_yaz([(2.0, 8.0, "A")], k, str(rttm / f"{k}.rttm"))
+
+    def oku(self, kayit):
+        return _ton_gurultu(gurultuler[kayit]), 16000
+
+    def bolgeler(ses, sr):
+        return [(0.5, 9.6)] if np.std(ses[:4000]) > 0.04 and np.std(ses[:4000]) < 0.06 else [(2.0, 8.0)]
+
+    yazilan = []
+    monkeypatch.setattr(vad_olcum.SesKaynagi, "oku", oku)
+    monkeypatch.setattr(vad_olcum, "_vad_calistir", lambda ad, ses, sr: bolgeler(ses, sr))
+    monkeypatch.setattr(vad_olcum.vad, "_silero_modeli", lambda: None)
+    monkeypatch.setattr(vad_olcum.vad, "konusma_bolgeleri", bolgeler)
+    monkeypatch.setattr(vad_olcum, "_wav_yaz", lambda yol, ses, sr: yazilan.append((yol, len(ses), sr)))
+    cikti_dizin, dinleme = str(tmp_path / "sonuc"), str(tmp_path / "dinleme")
+    vad_olcum.olc(str(tmp_path / "yok.zip"), str(rttm), list(gurultuler), cikti_dizin,
+                  dinleme_dizin=dinleme, dinleme_sayisi=2, log=lambda *a: None)
+    with open(f"{cikti_dizin}/{vad_olcum.KAYIT_CSV}", encoding="utf-8") as f:
+        sil = {r["kayit"]: r for r in csv.DictReader(f) if r["vad"] == "silero"}
+    assert sil["kisa_sessiz"]["snr_db"] == "nan"                       # konuşmasız < 1 sn
+    assert float(sil["gurultulu"]["snr_db"]) < float(sil["orta"]["snr_db"]) < float(sil["temiz"]["snr_db"])
+    with open(f"{cikti_dizin}/{vad_olcum.DINLEME_CSV}", encoding="utf-8") as f:
+        liste = list(csv.DictReader(f))
+    assert [r["kayit"] for r in liste] == ["gurultulu", "orta"]         # en düşük 2 SNR, NaN hariç
+    assert len(yazilan) == 2 and all(n == 160000 and sr == 16000 for _, n, sr in yazilan)  # 10 sn parça
+    assert yazilan[0][0].endswith(liste[0]["dosya"]) and "_snr" in liste[0]["dosya"]

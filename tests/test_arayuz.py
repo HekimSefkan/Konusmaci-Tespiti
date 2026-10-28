@@ -71,7 +71,11 @@ SOZLESME = {
         "hata_olc": ["ref_maske", "hyp_maske", "cozunurluk_sn"],
         "ozet_hesapla": ["satirlar"],
         "webrtc_bolgeleri": ["ses", "sr", "agresiflik"],
-        "olc": ["zip_yol", "rttm_dizin", "kayitlar", "cikti_dizin", "limit", "log"],
+        "olc": ["zip_yol", "rttm_dizin", "kayitlar", "cikti_dizin", "limit", "dinleme_dizin", "dinleme_sayisi",
+                "parca_sn", "log"],
+        "snr_tahmini": ["ses", "sr", "bolgeler", "min_konusmasiz_sn"],
+        "dinleme_parcasi": ["bolgeler", "sure_sn", "uzunluk_sn"],
+        "dinleme_yaz": ["zip_yol", "satirlar", "dinleme_dizin", "cikti_dizin", "sayi", "parca_sn", "log"],
         "main": ["argv"],
     },
     "src.gorsel": {

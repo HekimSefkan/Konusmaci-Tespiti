@@ -297,7 +297,7 @@ sonuc_grafigi(csv_yolu: str | list[str], png_yolu: str) -> str
 
 ### 3.14 `src/vad_olcum.py` (sahibi: Sefkan)
 
-Komut satırı: `python -m src.vad_olcum --zip Z --rttm-dizin R --liste L [L ...] --cikti-dizin C [--limit N]` (çıkış kodu 0 başarılı, 1 girdi hatası, 2 iç hata; hata veren kayıt atlanır ve `hata_gunlugu.txt`'ye yazılır).
+Komut satırı: `python -m src.vad_olcum --zip Z --rttm-dizin R --liste L [L ...] --cikti-dizin C [--limit N] [--dinleme-dizin D] [--dinleme-sayisi 5] [--parca-sn 10]` (çıkış kodu 0 başarılı, 1 girdi hatası, 2 iç hata; hata veren kayıt atlanır ve `hata_gunlugu.txt`'ye yazılır).
 
 ```python
 cercevelerden_bolgeler(kararlar, cerceve_sn: float) -> list[tuple[float, float]]
@@ -306,14 +306,19 @@ maske(bolgeler, sure_sn: float, cozunurluk_sn: float = 0.01) -> np.ndarray
 hata_olc(ref_maske, hyp_maske, cozunurluk_sn: float = 0.01) -> dict
 ozet_hesapla(satirlar: list[dict]) -> list[dict]
 webrtc_bolgeleri(ses: np.ndarray, sr: int, agresiflik: int) -> list[tuple[float, float]]
-olc(zip_yol, rttm_dizin, kayitlar, cikti_dizin, limit=None, log=print) -> list[dict]
+olc(zip_yol, rttm_dizin, kayitlar, cikti_dizin, limit=None, dinleme_dizin=None, dinleme_sayisi=5, parca_sn=10.0, log=print) -> list[dict]
+snr_tahmini(ses: np.ndarray, sr: int, bolgeler, min_konusmasiz_sn: float = 1.0) -> tuple[float, float]
+dinleme_parcasi(bolgeler, sure_sn: float, uzunluk_sn: float = 10.0) -> tuple[float, float]
+dinleme_yaz(zip_yol, satirlar, dinleme_dizin, cikti_dizin, sayi=5, parca_sn=10.0, log=print) -> list[dict]
 main(argv: list[str] | None = None) -> int
 ```
 - **VAD'lar:** `silero` = `vad.konusma_bolgeleri` (hattın ayarları; Silero'nun varsayılan 30 ms kenar payı dahil). `webrtc2`, `webrtc3` = WebRTC VAD, 30 ms çerçeve (16 bit PCM; son eksik çerçeve atılır), agresiflik 2 ve 3; kararlar `yumusat` ile Silero ile aynı biçimde işlenir: önce 300 ms'den kısa boşluklar doldurulur, sonra 250 ms'den kısa konuşma atılır, sonra her bölge iki yandan 30 ms genişletilir (`[0, süre]` ile kırpılır, örtüşenler birleşir). Süre karşılaştırmaları tamsayı milisaniyeyle yapılır.
 - **Referans:** RTTM segmentlerinin birleşimi = konuşma. Maske süresi `max(ses süresi, son RTTM bitişi)`.
 - **Ölçüler** (10 ms çerçeve, tüm kayıtların çerçeveleri toplanarak; kayıt ortalaması değil): `kacirilan_yuzde`, `yanlis_alarm_yuzde`, `toplam_hata_yuzde` referans konuşma süresinin yüzdesi (pyannote detection error rate gibi, DER bileşenleriyle karşılaştırılabilir); `yanlis_alarm_sessiz_yuzde` yanlış alarm / referansta konuşma olmayan süre; `sn_per_saat` toplam işlem süresi / toplam ses süresi (saat; Silero model yükleme süresi hariç).
 - **Çıktılar:** `{cikti}/vad_kayitlar.csv` (kayıt × VAD satırları: `vad, kayit, ses_sn, ref_konusma_sn, ref_sessiz_sn, kacirilan_sn, yanlis_alarm_sn, sure_sn`; yapılan kayıt × VAD çiftleri yeniden çalıştırmada atlanır) ve `{cikti}/vad_karsilastirma.csv` (VAD başına: `vad, kayit_sayisi, ses_saat, kacirilan_yuzde, yanlis_alarm_yuzde, toplam_hata_yuzde, yanlis_alarm_sessiz_yuzde, sn_per_saat`; yalnızca verilen liste/limit üzerinden). Süre sınırı (`MAKS_SURE_SN`) uygulanmaz.
-- Defterin 11. bölümü çalıştırır; 10. bölümün kopyalanacak özeti tabloyu içerir.
+- **Gürültülü kayıt adayları (kaba SNR):** `snr_tahmini` Silero'nun konuşma bölgelerinin ortalama gücünü konuşma olmayan bölgelerin ortalama gücüne böler (dB); `(snr_db, konusmasiz_sn)` döner. Konuşma olmayan süre `MIN_KONUSMASIZ_SN` = 1,0 sn'den kısaysa, konuşma yoksa veya güçlerden biri 0 ise `NaN`. Silero satırının `snr_db` ve `konusmasiz_sn` sütunlarına yazılır (WebRTC satırlarında boş). Bu yalnızca sıralama için **kaba bir tahmindir** (konuşma gücü gürültüyü de içerir; müzik/alkış konuşma sayılabilir); son seçim dinleyerek yapılır.
+- **Dinleme parçaları:** `--dinleme-dizin` verilirse `dinleme_yaz`, NaN olmayan en düşük SNR'lı `--dinleme-sayisi` kaydı seçer; her birinde `dinleme_parcasi` önünde en uzun sessizlik olan konuşma başlangıcını ortalayan `--parca-sn` uzunluğunda bir parça seçer (ilk yarı konuşma olmayan, ikinci yarı konuşma; dosya sınırında kaydırılır; konuşma yoksa dosyanın başı). Parçalar `<kayit>_<bas>s_snr<x>dB.wav` (16 kHz, `on_isle` sonrası ses) olarak yazılır, liste `{cikti}/dinleme_listesi.csv` (`kayit, snr_db, konusmasiz_sn, bas_sn, bit_sn, dosya`). Yalnızca Colab'da, Drive'a (`Hafta4/dinleme/`).
+- Defterin 11. bölümü çalıştırır; 10. bölümün kopyalanacak özeti VAD tablosunu ve dinleme listesini içerir.
 
 ## 4. Kenar durumlar
 

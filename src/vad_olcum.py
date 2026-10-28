@@ -2,6 +2,7 @@
 
 Komut satırı:
   python -m src.vad_olcum --zip Z --rttm-dizin R --liste L [L ...] --cikti-dizin C [--limit N]
+                          [--dinleme-dizin D] [--dinleme-sayisi 5] [--parca-sn 10]
 
 Ses zip'ten okunur (toplu.SesKaynagi; süre sınırı uygulanmaz). Üç VAD çalışır:
   silero   : vad.konusma_bolgeleri (min konuşma 250 ms, min sessizlik 300 ms, 30 ms kenar payı)
@@ -10,6 +11,9 @@ Referans konuşma = RTTM segmentlerinin birleşimi. Ölçüler 10 ms çözünür
 çerçeveleri toplanarak hesaplanır: kaçırılan, yanlış alarm ve toplam hata, referans konuşma
 süresinin yüzdesi olarak; ayrıca yanlış alarm, referansta konuşma olmayan sürenin yüzdesi olarak
 ve kayıt saati başına işlem süresi (sn).
+Aynı geçişte her kayıt için KABA bir SNR tahmini yapılır (Silero'nun konuşma dediği bölgelerin
+ortalama gücü / konuşma olmayan bölgelerin ortalama gücü, dB); en düşük tahmini SNR'lı kayıtlardan
+dinlemek için 10 sn'lik parçalar yazılabilir (--dinleme-dizin). Son seçim dinleyerek yapılır.
 webrtcvad / silero-vad fonksiyon içinde import edilir; ölçüm fonksiyonları yalnızca numpy kullanır.
 """
 import argparse
@@ -30,11 +34,15 @@ WEBRTC_CERCEVE_MS = 30
 KENAR_PAYI_MS = 30            # silero get_speech_timestamps varsayılanı (speech_pad_ms); WebRTC'ye de uygulanır
 VADLAR = ("silero", "webrtc2", "webrtc3")
 KAYIT_SUTUNLARI = ["vad", "kayit", "ses_sn", "ref_konusma_sn", "ref_sessiz_sn", "kacirilan_sn",
-                   "yanlis_alarm_sn", "sure_sn"]
+                   "yanlis_alarm_sn", "sure_sn", "snr_db", "konusmasiz_sn"]  # SNR yalnızca silero satırında
 OZET_SUTUNLARI = ["vad", "kayit_sayisi", "ses_saat", "kacirilan_yuzde", "yanlis_alarm_yuzde",
                   "toplam_hata_yuzde", "yanlis_alarm_sessiz_yuzde", "sn_per_saat"]
 KAYIT_CSV = "vad_kayitlar.csv"
 OZET_CSV = "vad_karsilastirma.csv"
+DINLEME_CSV = "dinleme_listesi.csv"
+MIN_KONUSMASIZ_SN = 1.0       # SNR için en az konuşma olmayan süre; altında NaN
+DINLEME_SAYISI = 5
+PARCA_SN = 10.0
 
 
 # ---------------------------------------------------------------------------
@@ -127,6 +135,46 @@ def ozet_hesapla(satirlar: list[dict]) -> list[dict]:
     return sonuc
 
 
+def snr_tahmini(ses: np.ndarray, sr: int, bolgeler, min_konusmasiz_sn: float = MIN_KONUSMASIZ_SN):
+    """KABA SNR (dB): konuşma bölgelerinin ortalama gücü / konuşma olmayan bölgelerin ortalama gücü.
+
+    Konuşma gücü gürültüyü de içerdiği için yalnızca kayıtları sıralamak (gürültülü aday bulmak)
+    içindir. Dönüş: (snr_db, konusmasiz_sn). Konuşma olmayan süre min_konusmasiz_sn'den kısaysa,
+    konuşma yoksa veya güçlerden biri 0 ise snr_db = NaN.
+    """
+    x = np.asarray(ses, dtype=np.float64)
+    m = np.zeros(len(x), dtype=bool)
+    for a, b in bolgeler:
+        m[max(0, int(round(a * sr))):max(0, int(round(b * sr)))] = True
+    konusmasiz_sn = float((~m).sum()) / sr
+    if konusmasiz_sn < min_konusmasiz_sn or not m.any():
+        return math.nan, konusmasiz_sn
+    guc_k, guc_g = float(np.mean(x[m] ** 2)), float(np.mean(x[~m] ** 2))
+    if guc_k <= 0 or guc_g <= 0:
+        return math.nan, konusmasiz_sn
+    return 10 * math.log10(guc_k / guc_g), konusmasiz_sn
+
+
+def dinleme_parcasi(bolgeler, sure_sn: float, uzunluk_sn: float = PARCA_SN) -> tuple[float, float]:
+    """Hem konuşma olmayan hem konuşma içeren bir parça: önünde en uzun sessizlik olan konuşma
+    başlangıcı ortalanır (ilk yarı sessizlik, ikinci yarı konuşma). Konuşma yoksa dosyanın başı.
+    Parça [0, sure_sn] içinde kalır. Dönüş: (bas_sn, bit_sn)."""
+    L = min(uzunluk_sn, sure_sn)
+    merkez, en_uzun, onceki_bit = 0.0, -1.0, 0.0
+    for a, b in sorted(bolgeler):
+        if a - onceki_bit > en_uzun:
+            merkez, en_uzun = a, a - onceki_bit
+        onceki_bit = max(onceki_bit, b)
+    bas = min(max(0.0, merkez - L / 2), max(0.0, sure_sn - L))
+    return round(bas, 3), round(bas + L, 3)
+
+
+def _wav_yaz(yol: str, ses: np.ndarray, sr: int) -> None:
+    import soundfile as sf
+
+    sf.write(yol, ses, sr)
+
+
 def ozet_tablosu(ozet: list[dict]) -> str:
     baslik = (f"{'vad':<9}{'kayıt':>6}{'saat':>8}{'kaçırılan%':>12}{'y.alarm%':>10}{'toplam%':>9}"
               f"{'y.alarm/sessiz%':>17}{'sn/saat':>9}")
@@ -183,9 +231,12 @@ def _csv_ekle(yol: str, satir: dict, sutunlar: list[str]) -> None:
 
 
 def olc(zip_yol: str, rttm_dizin: str, kayitlar: list[str], cikti_dizin: str, limit: int | None = None,
+        dinleme_dizin: str | None = None, dinleme_sayisi: int = DINLEME_SAYISI, parca_sn: float = PARCA_SN,
         log=print) -> list[dict]:
     """Kayıtlar üzerinde üç VAD'ı ölçer; vad_kayitlar.csv'ye kayıt satırları ekler (devam edebilir),
-    vad_karsilastirma.csv'yi yazar ve özeti döndürür. limit: ilk N kayıt."""
+    vad_karsilastirma.csv'yi yazar ve özeti döndürür. limit: ilk N kayıt.
+    Silero satırına kaba SNR (snr_tahmini) yazılır. dinleme_dizin verilirse en düşük SNR'lı
+    dinleme_sayisi kayıttan parca_sn'lik birer WAV parçası ve dinleme_listesi.csv yazılır."""
     os.makedirs(cikti_dizin, exist_ok=True)
     if limit:
         kayitlar = kayitlar[:limit]
@@ -211,9 +262,13 @@ def olc(zip_yol: str, rttm_dizin: str, kayitlar: list[str], cikti_dizin: str, li
                     bolgeler = _vad_calistir(ad, ses, sr)
                     gecen = time.perf_counter() - t0
                     olcu = hata_olc(ref_m, maske(bolgeler, sure))
+                    snr = {}
+                    if ad == "silero":
+                        snr_db, konusmasiz = snr_tahmini(ses, sr, bolgeler)
+                        snr = {"snr_db": round(snr_db, 2), "konusmasiz_sn": round(konusmasiz, 2)}
                     _csv_ekle(kayit_csv, {"vad": ad, "kayit": kayit, "ses_sn": round(len(ses) / sr, 3),
-                                          **{k: round(v, 3) for k, v in olcu.items()}, "sure_sn": round(gecen, 4)},
-                              KAYIT_SUTUNLARI)
+                                          **{k: round(v, 3) for k, v in olcu.items()}, "sure_sn": round(gecen, 4),
+                                          **snr}, KAYIT_SUTUNLARI)
                     bilgi.append(f"{ad} hata %{100 * (olcu['kacirilan_sn'] + olcu['yanlis_alarm_sn']) / max(olcu['ref_konusma_sn'], 1e-9):.1f}")
                 bilgi = "  ".join(bilgi)
             except Exception as e:
@@ -230,7 +285,48 @@ def olc(zip_yol: str, rttm_dizin: str, kayitlar: list[str], cikti_dizin: str, li
         w.writerows(ozet)
     log("")
     log(ozet_tablosu(ozet))
+    if dinleme_dizin:
+        dinleme_yaz(zip_yol, [r for r in _csv_oku(kayit_csv) if r["kayit"] in secili], dinleme_dizin,
+                    cikti_dizin, dinleme_sayisi, parca_sn, log)
     return ozet
+
+
+def dinleme_yaz(zip_yol: str, satirlar: list[dict], dinleme_dizin: str, cikti_dizin: str,
+                sayi: int = DINLEME_SAYISI, parca_sn: float = PARCA_SN, log=print) -> list[dict]:
+    """En düşük tahmini SNR'lı `sayi` kaydı seçer (silero satırları, NaN hariç), her birinden
+    dinleme_parcasi ile seçilen parçayı WAV olarak yazar; listeyi dinleme_listesi.csv'ye yazar."""
+    adaylar = []
+    for r in satirlar:
+        if r["vad"] == "silero" and r.get("snr_db") not in (None, "", "nan"):
+            snr = float(r["snr_db"])
+            if not math.isnan(snr):
+                adaylar.append((snr, r["kayit"], float(r.get("konusmasiz_sn") or "nan")))
+    adaylar.sort()
+    secilen = []
+    os.makedirs(dinleme_dizin, exist_ok=True)
+    with SesKaynagi(zip_yol) as kaynak:
+        for snr, kayit, konusmasiz in adaylar[:sayi]:
+            try:
+                ses, sr = kaynak.oku(kayit)
+                bolgeler = vad.konusma_bolgeleri(ses, sr)
+                bas, bit = dinleme_parcasi(bolgeler, len(ses) / sr, parca_sn)
+                ad = f"{kayit}_{bas:.0f}s_snr{snr:.1f}dB.wav"
+                _wav_yaz(os.path.join(dinleme_dizin, ad), ses[int(bas * sr):int(bit * sr)], sr)
+                secilen.append({"kayit": kayit, "snr_db": snr, "konusmasiz_sn": konusmasiz,
+                                "bas_sn": bas, "bit_sn": bit, "dosya": ad})
+            except Exception as e:
+                _hata_yaz(cikti_dizin, "dinleme", kayit, e)
+                log(f"  HATA {kayit}: {type(e).__name__}: {e}")
+    with open(os.path.join(cikti_dizin, DINLEME_CSV), "w", encoding="utf-8", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=["kayit", "snr_db", "konusmasiz_sn", "bas_sn", "bit_sn", "dosya"])
+        w.writeheader()
+        w.writerows(secilen)
+    log("")
+    log(f"En düşük tahmini SNR'lı {len(secilen)} kayıt (KABA tahmin; son seçim dinleyerek):")
+    for s in secilen:
+        log(f"  {s['kayit']}  SNR {s['snr_db']:6.1f} dB  konuşmasız {s['konusmasiz_sn']:6.1f} sn  "
+            f"parça {s['bas_sn']:.1f}-{s['bit_sn']:.1f} sn -> {s['dosya']}")
+    return secilen
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -240,9 +336,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--liste", nargs="+", required=True, help="kayıt listesi dosya(lar)ı")
     ap.add_argument("--cikti-dizin", required=True, help="vad_kayitlar.csv ve vad_karsilastirma.csv klasörü")
     ap.add_argument("--limit", type=int, help="yalnızca ilk N kayıt (deneme)")
+    ap.add_argument("--dinleme-dizin", help="en düşük SNR'lı kayıtların dinleme parçaları (WAV) klasörü")
+    ap.add_argument("--dinleme-sayisi", type=int, default=DINLEME_SAYISI)
+    ap.add_argument("--parca-sn", type=float, default=PARCA_SN)
     a = ap.parse_args(argv)
     try:
-        olc(a.zip, a.rttm_dizin, listeleri_oku(a.liste), a.cikti_dizin, a.limit)
+        olc(a.zip, a.rttm_dizin, listeleri_oku(a.liste), a.cikti_dizin, a.limit,
+            a.dinleme_dizin, a.dinleme_sayisi, a.parca_sn)
     except (FileNotFoundError, ValueError) as e:
         print(f"Girdi hatası: {e}", file=sys.stderr)
         return 1
