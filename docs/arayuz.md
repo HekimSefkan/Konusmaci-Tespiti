@@ -281,6 +281,14 @@ mfcc_olcek() -> dict | None
 - Kullananlar: `kumeleme.VARSAYILAN_ESIK`, `main.calistir`, `toplu.deney_calistir` ve `toplu` komut satırı (`--esikler` verilmediğinde).
 - Hafta 4 değerleri (tarama tarihi 2026-10-27): eşik mfcc 0,77122, ecapa 0,79346 (eşik taramasında uyarı yok); MFCC ölçeği eğitim yarısının 42 520 penceresinden (26 ortalama, 26 std).
 
+### 3.13 `src/gorsel.py` (sahibi: Sefkan)
+
+```python
+zaman_cizelgesi(ref_rttm: str, hyp_rttm: str, png_yolu: str, baslik: str | None = None) -> str
+```
+- matplotlib fonksiyon içinde import edilir; `pyplot` kullanılmaz, çizim doğrudan Agg tuvaline (`FigureCanvasAgg`) yapılır ve PNG'ye yazılır. Ekranda pencere açılmaz, defterin satır içi arka ucu değişmez. Dönüş: `png_yolu` (klasör yoksa oluşturulur).
+- `zaman_cizelgesi`: aynı kaydın referans ve sistem RTTM'ini alt alta iki şeritte çizer (Hafta 2 Şekil 2 gibi): her şeritte konuşmacı başına bir satır, zaman ekseni saniye ve iki şeritte ortak. Referans ve sistem etiketleri eşleştirilmez; renkler her şeritte kendi içinde atanır. Boş RTTM'de şeritte "konuşma yok" yazar. `baslik` verilmezse referans dosyasının adı. Hata: `FileNotFoundError`, `ValueError` (RTTM bozuk).
+
 ## 4. Kenar durumlar
 
 - **Kısa dosya / kısa konuşma (1,5 sn'den az):** Hata verilmez. Uyarı yazılır, tüm konuşma tek segment sayılır, tek konuşmacı (`spk00`) atanır, çıkış kodu 0. Bu durumda `main` kümelemeyi hiç çağırmaz; VAD bölgelerinin her biri `spk00` etiketiyle doğrudan segment olur. (Ayrıca `kumele`, `N == 1` için `[0]` döner.)
