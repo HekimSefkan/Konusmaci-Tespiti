@@ -38,7 +38,7 @@ def hat_segmentleri(bolgeler, pencereler, X, konusmaci_sayisi=None, esik=None):
 
 
 def calistir(girdi: str, cikti_yolu: str, yontem: str, konusmaci_sayisi: int | None,
-             esik: float | None = None) -> None:
+             esik: float | None = None, maks_sure_sn: float | None = ses_girdi.MAKS_SURE_SN) -> None:
     """Hattı sırayla çalıştırır ve RTTM yazar.
 
     esik None ve konuşmacı sayısı verilmemişse yöntemin ayarlanmış eşiği
@@ -48,7 +48,7 @@ def calistir(girdi: str, cikti_yolu: str, yontem: str, konusmaci_sayisi: int | N
     if esik is None and konusmaci_sayisi is None:
         esik = varsayilanlar.esik(yontem)
     dosya_id = os.path.splitext(os.path.basename(girdi))[0]
-    ses, sr = ses_girdi.ses_yukle(girdi)
+    ses, sr = ses_girdi.ses_yukle(girdi, maks_sure_sn)
     bolgeler = vad.konusma_bolgeleri(ses, sr)
     pencereler, X = [], None
     if bolgeler and kisa_konusma(bolgeler):
@@ -77,9 +77,12 @@ def main(argv: list[str] | None = None) -> int:
                     help="öznitelik yöntemi (varsayılan: ecapa)")
     ap.add_argument("--konusmaci-sayisi", type=int, default=None, help="biliniyorsa konuşmacı sayısı")
     ap.add_argument("--esik", type=float, default=None, help="AHC kosinüs mesafesi eşiği (verilmezse yönteme göre src/varsayilanlar.json)")
+    ap.add_argument("--maks-sure", type=float, default=ses_girdi.MAKS_SURE_SN,
+                    help=f"en uzun girdi süresi, sn (varsayılan {ses_girdi.MAKS_SURE_SN}; 0 = sınırsız)")
     a = ap.parse_args(argv)
+    maks = a.maks_sure if a.maks_sure and a.maks_sure > 0 else None
     try:
-        calistir(a.girdi, a.cikti, a.yontem, a.konusmaci_sayisi, a.esik)
+        calistir(a.girdi, a.cikti, a.yontem, a.konusmaci_sayisi, a.esik, maks)
     except (FileNotFoundError, ValueError) as e:
         print(f"Girdi hatası ({a.girdi}): {e}", file=sys.stderr)
         return 1

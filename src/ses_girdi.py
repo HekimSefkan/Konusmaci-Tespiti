@@ -14,6 +14,9 @@ SR = 16000  # örnekleme hızı (Hz), tüm hat boyunca sabit
 HEDEF_RMS_DBFS = -20.0
 TEPE_SINIRI = 0.99
 DESTEKLENEN = (".wav", ".flac", ".mp3")
+# En uzun girdi (sn). VoxConverse dev: ortalama ~335 sn, en uzun ~1100 sn (ldnro 1097 sn);
+# 1800 sn bu kayıtları rahatça kapsar, yanlışlıkla verilen saatlerce uzun dosyaları reddeder.
+MAKS_SURE_SN = 1800
 
 
 def wav_denetle(kaynak, ad: str | None = None) -> float:
@@ -109,15 +112,22 @@ def on_isle(veri: np.ndarray, sr_girdi: int) -> np.ndarray:
     return np.clip(x, -1.0, 1.0).astype(np.float32)
 
 
-def ses_yukle(yol: str) -> tuple[np.ndarray, int]:
+def _sure_denetle(ad: str, sure_sn: float, maks_sure_sn: float | None) -> None:
+    if maks_sure_sn is not None and sure_sn > maks_sure_sn:
+        raise ValueError(f"{ad}: süre {sure_sn:.1f} sn, en fazla {maks_sure_sn:g} sn kabul ediliyor")
+
+
+def ses_yukle(yol: str, maks_sure_sn: float | None = MAKS_SURE_SN) -> tuple[np.ndarray, int]:
     """Ses dosyasını okur; mono, 16 kHz, RMS ~ -20 dBFS'e normalize eder.
 
-    Girdi: yol (wav/mp3/flac dosya yolu).
+    Girdi: yol (wav/mp3/flac dosya yolu); maks_sure_sn: en uzun süre (sn), None = sınırsız.
+           Süre mümkünse dosya okunmadan başlıktan denetlenir (wav: RIFF başlığı,
+           flac: soundfile.info, mp3: librosa.get_duration); okumadan sonra bir kez daha.
     Çıktı: (ses, sr). ses: float32, şekil (n_ornek,), değerler [-1, 1];
            sr: her zaman 16000 (Hz). Tepe değer 0,99'u geçmez (gerekirse
            RMS -20 dBFS'in altında kalır).
     Hata: FileNotFoundError (dosya yok), ValueError (bozuk/desteklenmeyen
-          biçim; mesajda dosya adı geçer).
+          biçim veya süre sınırı aşıldı; mesajda dosya adı geçer).
     """
     ad = os.path.basename(yol)
     if not os.path.isfile(yol):
@@ -127,10 +137,17 @@ def ses_yukle(yol: str) -> tuple[np.ndarray, int]:
         raise ValueError(f"{ad}: desteklenmeyen biçim '{uzanti}' (wav/flac/mp3)")
 
     if uzanti == ".wav":
-        wav_denetle(yol, ad)  # soundfile kesik dosyayı sessizce kısaltıp okur; önce başlığı denetle
+        # soundfile kesik dosyayı sessizce kısaltıp okur; önce başlığı denetle. Süre de başlıktan.
+        _sure_denetle(ad, wav_denetle(yol, ad), maks_sure_sn)
     if uzanti in (".wav", ".flac"):
         import soundfile as sf
 
+        if uzanti == ".flac" and maks_sure_sn is not None:
+            try:
+                sure = sf.info(yol).duration  # yalnızca başlık okunur
+            except Exception as e:
+                raise ValueError(f"{ad}: okunamadı ({e})") from e
+            _sure_denetle(ad, sure, maks_sure_sn)
         try:
             veri, sr = sf.read(yol, dtype="float32", always_2d=True)  # (n, kanal)
         except Exception as e:
@@ -138,12 +155,19 @@ def ses_yukle(yol: str) -> tuple[np.ndarray, int]:
     else:
         import librosa
 
+        if maks_sure_sn is not None:
+            try:
+                sure = librosa.get_duration(path=yol)
+            except Exception as e:
+                raise ValueError(f"{ad}: okunamadı ({e})") from e
+            _sure_denetle(ad, sure, maks_sure_sn)
         try:
             veri, sr = librosa.load(yol, sr=None, mono=False)  # (kanal, n) veya (n,)
         except Exception as e:
             raise ValueError(f"{ad}: okunamadı ({e})") from e
         if veri.ndim == 2:
             veri = veri.T
+    _sure_denetle(ad, len(veri) / float(sr), maks_sure_sn)  # başlık yanıltıcıysa son güvence
 
     try:
         return on_isle(veri, int(sr)), SR

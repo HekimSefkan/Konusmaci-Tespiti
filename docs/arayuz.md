@@ -39,11 +39,12 @@ Zaman her yerde **saniye** (float). Sıralama her listede zamana göredir.
 ### 3.1 `src/ses_girdi.py` (sahibi: Abdullah)
 
 ```python
-ses_yukle(yol: str) -> tuple[np.ndarray, int]
+ses_yukle(yol: str, maks_sure_sn: float | None = MAKS_SURE_SN) -> tuple[np.ndarray, int]
 ```
 - `yol`: wav/mp3/flac dosya yolu.
 - Dönüş: `(ses, 16000)`; ses mono (kanal ortalaması), `float32`, şekil `(n_ornek,)`, RMS yaklaşık -20 dBFS. Tepe değer 0,99'u geçmez (gerekirse RMS -20 dBFS'in altında kalır). wav/flac `soundfile`, mp3 `librosa` ile okunur; 16 kHz dışındaki sesler yeniden örneklenir. Sessiz (sıfır) ses hata değildir, değiştirilmeden döner.
-- Hata: `FileNotFoundError` (dosya yok), `ValueError` (bozuk veya desteklenmeyen biçim; mesajda dosya adı geçer).
+- `maks_sure_sn`: en uzun girdi süresi (sn); varsayılan `MAKS_SURE_SN = 1800`, `None` = sınırsız. Süre mümkünse dosya okunmadan başlıktan denetlenir (wav: RIFF başlığı, `wav_denetle`; flac: `soundfile.info`; mp3: `librosa.get_duration`), okumadan sonra gerçek uzunlukla bir kez daha.
+- Hata: `FileNotFoundError` (dosya yok), `ValueError` (bozuk veya desteklenmeyen biçim, ya da süre sınırı aşıldı: `"<ad>: süre <s> sn, en fazla <m> sn kabul ediliyor"`; mesajda dosya adı geçer).
 
 ```python
 on_isle(veri: np.ndarray, sr_girdi: int) -> np.ndarray
@@ -153,7 +154,9 @@ degerlendir(ref_rttm: str, hyp_rttm: str, collar: float = 0.5, tolerans_sn: floa
 ```python
 main(argv: list[str] | None = None) -> int
 ```
-Komut satırı: `python -m src.main <girdi_ses> -o <cikti.rttm> [--yontem ecapa|mfcc] [--konusmaci-sayisi N] [--esik E]`
+Komut satırı: `python -m src.main <girdi_ses> -o <cikti.rttm> [--yontem ecapa|mfcc] [--konusmaci-sayisi N] [--esik E] [--maks-sure SN]`
+
+- `--maks-sure`: en uzun girdi süresi (sn), varsayılan `ses_girdi.MAKS_SURE_SN` (1800); `0` = sınırsız. Aşan dosya çıkış kodu 1 verir (mesajda dosya adı ve süre).
 
 - `--yontem`: varsayılan **`ecapa`** (Hafta 4 değerlendirme yarısında en iyi sonuç: E4, DER 0,061). `mfcc` seçenek olarak kalır.
 - `--esik`: AHC kosinüs mesafesi eşiği. Verilmezse (ve `--konusmaci-sayisi` yoksa) yöntemin ayarlanmış eşiği kullanılır: `varsayilanlar.esik(yontem)` (ecapa 0,79346, mfcc 0,77122). `--konusmaci-sayisi` verilirse eşik kullanılmaz.
@@ -225,7 +228,7 @@ ozet_yaz(yol: str, ozet: dict) -> None
 listeleri_oku(yollar: list[str]) -> list[str]
 main(argv: list[str] | None = None) -> int
 ```
-- **Ses okuma:** WAV zip'ten `ZipFile.read` ile belleğe alınır ve `soundfile` ile `BytesIO`'dan okunur; zip açılmaz. Okunamazsa geçici dosyaya yazılıp `ses_yukle` ile okunur ve silinir. Ön işleme `ses_girdi.on_isle` ile `ses_yukle` ile aynıdır.
+- **Ses okuma:** WAV zip'ten `ZipFile.read` ile belleğe alınır ve `soundfile` ile `BytesIO`'dan okunur; zip açılmaz. Okunamazsa geçici dosyaya yazılıp `ses_yukle` ile okunur ve silinir. Ön işleme `ses_girdi.on_isle` ile `ses_yukle` ile aynıdır. **Süre sınırı (`MAKS_SURE_SN`) uygulanmaz:** toplu iş bilinen bir veri kümesini işler (VoxConverse dev'de en uzun kayıt ~1100 sn).
 - **Önbellek:** `{onbellek}/<tur>/<anahtar>/<kayit>.npz`, `tur` ∈ {`vad`, `mfcc`, `ecapa`}. `<anahtar>` hesaplamayı etkileyen parametreleri içerir (ör. `p1.5_k0.75_v250_s300_mfcc13c1_f512_w400_h160`); her anahtar klasöründe `parametreler.json` durur. `vad` dosyası: `bolgeler (K, 2)`, `ses_sn`, `sure_sn`. `mfcc`/`ecapa` dosyası: `pencereler (N, 2)`, `X (N, D) float32`, `sure_sn`. Dosya önce geçici adla yazılıp `os.replace` ile konur; yarım dosya geçerli sayılmaz, okunamayan dosya yeniden hesaplanır.
 - **Kayıt CSV'si** `{cikti}/<deney>.csv`, ilk beş sütun sabit: `deney, kayit, der, jer, f1`; ardından `precision, recall, tp, fp, fn, yanlis_alarm_sn, kacirilan_sn, karisiklik_sn, referans_sn, ses_sn, sure_sn`. `sure_sn` = öznitelik hesaplama süresi (önbellekte saklı) + deneyin kendi süresi. Hipotez RTTM'leri `{cikti}/<deney>/<kayit>.rttm`. CSV'de olan kayıtlar yeniden çalıştırmada atlanır. Değerlendirme `collar=0.5`, `tolerans_sn=0.5`.
 - **Özet** `{cikti}/ozet.csv` sütunları: `deney, kayit_sayisi, der, jer_ort, mikro_f1, toplam_sure_sn, toplam_ses_sn, atlanan`. `der` = Σ(yanlış alarm + kaçırılan + karışıklık) / Σ `referans_sn`; `jer_ort` NaN'lar dışarıda ortalama; `mikro_f1` Σtp/Σfp/Σfn'den. Aynı deneyin satırı yeniden çalıştırmada değiştirilir.
@@ -281,13 +284,49 @@ mfcc_olcek() -> dict | None
 - Kullananlar: `kumeleme.VARSAYILAN_ESIK`, `main.calistir`, `toplu.deney_calistir` ve `toplu` komut satırı (`--esikler` verilmediğinde).
 - Hafta 4 değerleri (tarama tarihi 2026-10-27): eşik mfcc 0,77122, ecapa 0,79346 (eşik taramasında uyarı yok); MFCC ölçeği eğitim yarısının 42 520 penceresinden (26 ortalama, 26 std).
 
+### 3.13 `src/gorsel.py` (sahibi: Sefkan)
+
+```python
+zaman_cizelgesi(ref_rttm: str, hyp_rttm: str, png_yolu: str, baslik: str | None = None) -> str
+sonuc_grafigi(csv_yolu: str | list[str], png_yolu: str) -> str
+```
+- matplotlib fonksiyon içinde import edilir; `pyplot` kullanılmaz, çizim doğrudan Agg tuvaline (`FigureCanvasAgg`) yapılır ve PNG'ye yazılır. Ekranda pencere açılmaz, defterin satır içi arka ucu değişmez. Dönüş: `png_yolu` (klasör yoksa oluşturulur).
+- `zaman_cizelgesi`: aynı kaydın referans ve sistem RTTM'ini alt alta iki şeritte çizer (Hafta 2 Şekil 2 gibi): her şeritte konuşmacı başına bir satır, zaman ekseni saniye ve iki şeritte ortak. Referans ve sistem etiketleri eşleştirilmez; renkler her şeritte kendi içinde atanır. Boş RTTM'de şeritte "konuşma yok" yazar. `baslik` verilmezse referans dosyasının adı. Hata: `FileNotFoundError`, `ValueError` (RTTM bozuk).
+- `sonuc_grafigi`: deney başına DER, JER ve değişim F1'ini gruplu çubuk grafikle çizer. `csv_yolu`: `ozet.csv` (`der`, `jer_ort`, `mikro_f1` doğrudan), tek bir deney CSV'si (ilk beş sütun `deney, kayit, der, jer, f1`) veya bunların listesi; deney CSV'leri `toplu.ozet_hesapla` ile toplanır (DER toplam saniyelerden, JER NaN'sız ortalama, F1 mikro). Aynı deney birden çok dosyada varsa sonraki geçerlidir. Hata: `FileNotFoundError`, `ValueError` (boş liste, boş veya tanınmayan CSV).
+- Defterin 9. bölümü bu iki fonksiyonu kullanır; hata verirlerse defter içindeki yedek çizime düşer.
+
+### 3.14 `src/vad_olcum.py` (sahibi: Sefkan)
+
+Komut satırı: `python -m src.vad_olcum --zip Z --rttm-dizin R --liste L [L ...] --cikti-dizin C [--limit N] [--dinleme-dizin D] [--dinleme-sayisi 5] [--parca-sn 10]` (çıkış kodu 0 başarılı, 1 girdi hatası, 2 iç hata; hata veren kayıt atlanır ve `hata_gunlugu.txt`'ye yazılır).
+
+```python
+cercevelerden_bolgeler(kararlar, cerceve_sn: float) -> list[tuple[float, float]]
+yumusat(bolgeler, sure_sn: float, min_konusma_ms=250, min_sessizlik_ms=300, kenar_payi_ms=30) -> list[tuple[float, float]]
+maske(bolgeler, sure_sn: float, cozunurluk_sn: float = 0.01) -> np.ndarray
+hata_olc(ref_maske, hyp_maske, cozunurluk_sn: float = 0.01) -> dict
+ozet_hesapla(satirlar: list[dict]) -> list[dict]
+webrtc_bolgeleri(ses: np.ndarray, sr: int, agresiflik: int) -> list[tuple[float, float]]
+olc(zip_yol, rttm_dizin, kayitlar, cikti_dizin, limit=None, dinleme_dizin=None, dinleme_sayisi=5, parca_sn=10.0, log=print) -> list[dict]
+snr_tahmini(ses: np.ndarray, sr: int, bolgeler, min_konusmasiz_sn: float = 1.0) -> tuple[float, float]
+dinleme_parcasi(bolgeler, sure_sn: float, uzunluk_sn: float = 10.0) -> tuple[float, float]
+dinleme_yaz(zip_yol, satirlar, dinleme_dizin, cikti_dizin, sayi=5, parca_sn=10.0, log=print) -> list[dict]
+main(argv: list[str] | None = None) -> int
+```
+- **VAD'lar:** `silero` = `vad.konusma_bolgeleri` (hattın ayarları; Silero'nun varsayılan 30 ms kenar payı dahil). `webrtc2`, `webrtc3` = WebRTC VAD, 30 ms çerçeve (16 bit PCM; son eksik çerçeve atılır), agresiflik 2 ve 3; kararlar `yumusat` ile Silero ile aynı biçimde işlenir: önce 300 ms'den kısa boşluklar doldurulur, sonra 250 ms'den kısa konuşma atılır, sonra her bölge iki yandan 30 ms genişletilir (`[0, süre]` ile kırpılır, örtüşenler birleşir). Süre karşılaştırmaları tamsayı milisaniyeyle yapılır.
+- **Referans:** RTTM segmentlerinin birleşimi = konuşma. Maske süresi `max(ses süresi, son RTTM bitişi)`.
+- **Ölçüler** (10 ms çerçeve, tüm kayıtların çerçeveleri toplanarak; kayıt ortalaması değil): `kacirilan_yuzde`, `yanlis_alarm_yuzde`, `toplam_hata_yuzde` referans konuşma süresinin yüzdesi (pyannote detection error rate gibi, DER bileşenleriyle karşılaştırılabilir); `yanlis_alarm_sessiz_yuzde` yanlış alarm / referansta konuşma olmayan süre; `sn_per_saat` toplam işlem süresi / toplam ses süresi (saat; Silero model yükleme süresi hariç).
+- **Çıktılar:** `{cikti}/vad_kayitlar.csv` (kayıt × VAD satırları: `vad, kayit, ses_sn, ref_konusma_sn, ref_sessiz_sn, kacirilan_sn, yanlis_alarm_sn, sure_sn`; yapılan kayıt × VAD çiftleri yeniden çalıştırmada atlanır) ve `{cikti}/vad_karsilastirma.csv` (VAD başına: `vad, kayit_sayisi, ses_saat, kacirilan_yuzde, yanlis_alarm_yuzde, toplam_hata_yuzde, yanlis_alarm_sessiz_yuzde, sn_per_saat`; yalnızca verilen liste/limit üzerinden). Süre sınırı (`MAKS_SURE_SN`) uygulanmaz.
+- **Gürültülü kayıt adayları (kaba SNR):** `snr_tahmini` Silero'nun konuşma bölgelerinin ortalama gücünü konuşma olmayan bölgelerin ortalama gücüne böler (dB); `(snr_db, konusmasiz_sn)` döner. Konuşma olmayan süre `MIN_KONUSMASIZ_SN` = 1,0 sn'den kısaysa, konuşma yoksa veya güçlerden biri 0 ise `NaN`. Silero satırının `snr_db` ve `konusmasiz_sn` sütunlarına yazılır (WebRTC satırlarında boş). Bu yalnızca sıralama için **kaba bir tahmindir** (konuşma gücü gürültüyü de içerir; müzik/alkış konuşma sayılabilir); son seçim dinleyerek yapılır.
+- **Dinleme parçaları:** `--dinleme-dizin` verilirse `dinleme_yaz`, NaN olmayan en düşük SNR'lı `--dinleme-sayisi` kaydı seçer; her birinde `dinleme_parcasi` önünde en uzun sessizlik olan konuşma başlangıcını ortalayan `--parca-sn` uzunluğunda bir parça seçer (ilk yarı konuşma olmayan, ikinci yarı konuşma; dosya sınırında kaydırılır; konuşma yoksa dosyanın başı). Parçalar `<kayit>_<bas>s_snr<x>dB.wav` (16 kHz, `on_isle` sonrası ses) olarak yazılır, liste `{cikti}/dinleme_listesi.csv` (`kayit, snr_db, konusmasiz_sn, bas_sn, bit_sn, dosya`). Yalnızca Colab'da, Drive'a (`Hafta4/dinleme/`).
+- Defterin 11. bölümü çalıştırır; 10. bölümün kopyalanacak özeti VAD tablosunu ve dinleme listesini içerir.
+
 ## 4. Kenar durumlar
 
 - **Kısa dosya / kısa konuşma (1,5 sn'den az):** Hata verilmez. Uyarı yazılır, tüm konuşma tek segment sayılır, tek konuşmacı (`spk00`) atanır, çıkış kodu 0. Bu durumda `main` kümelemeyi hiç çağırmaz; VAD bölgelerinin her biri `spk00` etiketiyle doğrudan segment olur. (Ayrıca `kumele`, `N == 1` için `[0]` döner.)
 - **Sessiz dosya:** `konusma_bolgeleri` `[]` döner, `main` boş RTTM yazar, çıkış kodu 0.
 - **Bozuk veya desteklenmeyen dosya:** `ses_yukle` `ValueError` fırlatır (dosya yoksa `FileNotFoundError`); `main` çıkış kodu 1 ile döner ve mesajda dosya adı bulunur.
 - **Örtüşen konuşma:** İlk sürümde tespit edilmez; her segment tek konuşmacıya atanır. Bilinen sınırlamadır.
-- **Maksimum süre (300 sn):** Açık nokta, ekip toplantısında karara bağlanacak.
+- **Maksimum süre (karar verildi):** Sınır yapılandırılabilir, varsayılan **1800 sn** (`ses_girdi.MAKS_SURE_SN`, `ses_yukle(..., maks_sure_sn=...)`, `python -m src.main --maks-sure SN`, `0` = sınırsız). Gerekçe: VoxConverse dev kayıtlarının ortalaması yaklaşık 335 sn, en uzunu yaklaşık 1100 sn (önbellek koşusunda ldnro 1097 sn); 1800 sn bunları rahatça kapsar ve yanlışlıkla verilen saatlerce uzun dosyaları (bellek ve süre) erkenden reddeder. Aşan dosya `ValueError`, çıkış kodu 1. Toplu çalıştırma (`src/toplu.py`) ve VAD ölçümü (`src/vad_olcum.py`) sınırı uygulamaz.
 
 ## 5. Değişiklik kuralı
 
