@@ -64,7 +64,10 @@ SOZLESME = {
         "main": ["argv"],
     },
     "src.uyumluluk": {"speechbrain_hazirla": []},
-    "src.gorsel": {"zaman_cizelgesi": ["ref_rttm", "hyp_rttm", "png_yolu", "baslik"]},
+    "src.gorsel": {
+        "zaman_cizelgesi": ["ref_rttm", "hyp_rttm", "png_yolu", "baslik"],
+        "sonuc_grafigi": ["csv_yolu", "png_yolu"],
+    },
     "src.varsayilanlar": {"yukle": [], "esik": ["yontem"], "mfcc_olcek": []},
     "src.degisim_modeli": {
         "ozellikler": ["pencereler", "X_ecapa", "X_mfcc", "bolgeler", "k"],

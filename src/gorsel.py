@@ -63,3 +63,67 @@ def zaman_cizelgesi(ref_rttm: str, hyp_rttm: str, png_yolu: str, baslik: str | N
         baslik = os.path.splitext(os.path.basename(ref_rttm))[0]
     eksenler[0].set_title(baslik)
     return _kaydet(sekil, png_yolu)
+
+
+_DENEY_SUTUNLARI = ("deney", "kayit", "der", "jer", "f1")  # deney CSV'lerinin sabit ilk beş sütunu
+_OZET_SUTUNLARI = ("deney", "der", "jer_ort", "mikro_f1")
+
+
+def _sonuclari_oku(csv_yolu) -> list[tuple[str, float, float, float]]:
+    """[(deney, DER, JER, F1)]: ozet.csv satırları doğrudan, deney CSV'leri deney başına toplanarak."""
+    import csv
+    import math
+
+    from .toplu import ozet_hesapla
+
+    yollar = [csv_yolu] if isinstance(csv_yolu, (str, os.PathLike)) else list(csv_yolu)
+    if not yollar:
+        raise ValueError("en az bir CSV gerekli")
+    sonuc: dict[str, tuple[float, float, float]] = {}
+    for yol in yollar:
+        with open(yol, encoding="utf-8", newline="") as f:
+            satirlar = list(csv.DictReader(f))
+        if not satirlar:
+            raise ValueError(f"{yol}: CSV boş")
+        sutunlar = set(satirlar[0])
+        if set(_OZET_SUTUNLARI) <= sutunlar:
+            for r in satirlar:
+                sonuc[r["deney"]] = tuple(float(r[k]) if r[k] not in ("", None) else math.nan
+                                          for k in ("der", "jer_ort", "mikro_f1"))
+        elif set(_DENEY_SUTUNLARI) <= sutunlar:
+            for deney in sorted({r["deney"] for r in satirlar}):
+                o = ozet_hesapla([r for r in satirlar if r["deney"] == deney])
+                sonuc[deney] = (o["der"], o["jer_ort"], o["mikro_f1"])
+        else:
+            raise ValueError(f"{yol}: ozet.csv veya deney CSV'si değil (sütunlar: {sorted(sutunlar)})")
+    return [(d, *sonuc[d]) for d in sorted(sonuc)]
+
+
+def sonuc_grafigi(csv_yolu, png_yolu: str) -> str:
+    """Deney başına DER, JER ve değişim F1'ini gruplu çubuk grafikle çizer, PNG'ye yazar.
+
+    csv_yolu: ozet.csv (der, jer_ort, mikro_f1), tek bir deney CSV'si (ilk beş sütun
+    deney, kayit, der, jer, f1) veya bunların listesi. Deney CSV'leri toplu.ozet_hesapla ile
+    toplanır (DER toplam saniyelerden, JER NaN'sız ortalama, F1 mikro).
+    Dönüş: png_yolu. Hata: FileNotFoundError, ValueError (boş veya tanınmayan CSV).
+    """
+    import numpy as np
+
+    veriler = _sonuclari_oku(csv_yolu)
+    deneyler = [d for d, *_ in veriler]
+    sekil, ax = _yeni_sekil(max(6, 1.4 * len(deneyler) + 2), 4)
+    x = np.arange(len(deneyler))
+    genislik = 0.27
+    renk = _renkler(3)
+    for i, ad in enumerate(("DER", "JER", "Değişim F1")):
+        degerler = [v[i + 1] for v in veriler]
+        cubuklar = ax.bar(x + (i - 1) * genislik, degerler, genislik, label=ad, color=renk[i])
+        ax.bar_label(cubuklar, labels=[f"{v:.3f}" if v == v else "–" for v in degerler], fontsize=7, padding=2)
+    ax.set_xticks(x, deneyler)
+    tepe = max([v for _, *d in veriler for v in d if v == v] + [1.0])
+    ax.set_ylim(0, tepe * 1.12)
+    ax.set_ylabel("değer (0-1)")
+    ax.grid(axis="y", alpha=0.3)
+    ax.legend(loc="upper right", fontsize=8)
+    ax.set_title("Deney başına DER, JER ve değişim F1")
+    return _kaydet(sekil, png_yolu)

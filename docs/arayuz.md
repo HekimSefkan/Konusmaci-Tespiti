@@ -285,9 +285,12 @@ mfcc_olcek() -> dict | None
 
 ```python
 zaman_cizelgesi(ref_rttm: str, hyp_rttm: str, png_yolu: str, baslik: str | None = None) -> str
+sonuc_grafigi(csv_yolu: str | list[str], png_yolu: str) -> str
 ```
 - matplotlib fonksiyon içinde import edilir; `pyplot` kullanılmaz, çizim doğrudan Agg tuvaline (`FigureCanvasAgg`) yapılır ve PNG'ye yazılır. Ekranda pencere açılmaz, defterin satır içi arka ucu değişmez. Dönüş: `png_yolu` (klasör yoksa oluşturulur).
 - `zaman_cizelgesi`: aynı kaydın referans ve sistem RTTM'ini alt alta iki şeritte çizer (Hafta 2 Şekil 2 gibi): her şeritte konuşmacı başına bir satır, zaman ekseni saniye ve iki şeritte ortak. Referans ve sistem etiketleri eşleştirilmez; renkler her şeritte kendi içinde atanır. Boş RTTM'de şeritte "konuşma yok" yazar. `baslik` verilmezse referans dosyasının adı. Hata: `FileNotFoundError`, `ValueError` (RTTM bozuk).
+- `sonuc_grafigi`: deney başına DER, JER ve değişim F1'ini gruplu çubuk grafikle çizer. `csv_yolu`: `ozet.csv` (`der`, `jer_ort`, `mikro_f1` doğrudan), tek bir deney CSV'si (ilk beş sütun `deney, kayit, der, jer, f1`) veya bunların listesi; deney CSV'leri `toplu.ozet_hesapla` ile toplanır (DER toplam saniyelerden, JER NaN'sız ortalama, F1 mikro). Aynı deney birden çok dosyada varsa sonraki geçerlidir. Hata: `FileNotFoundError`, `ValueError` (boş liste, boş veya tanınmayan CSV).
+- Defterin 9. bölümü bu iki fonksiyonu kullanır; hata verirlerse defter içindeki yedek çizime düşer.
 
 ## 4. Kenar durumlar
 
