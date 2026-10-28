@@ -295,6 +295,26 @@ sonuc_grafigi(csv_yolu: str | list[str], png_yolu: str) -> str
 - `sonuc_grafigi`: deney başına DER, JER ve değişim F1'ini gruplu çubuk grafikle çizer. `csv_yolu`: `ozet.csv` (`der`, `jer_ort`, `mikro_f1` doğrudan), tek bir deney CSV'si (ilk beş sütun `deney, kayit, der, jer, f1`) veya bunların listesi; deney CSV'leri `toplu.ozet_hesapla` ile toplanır (DER toplam saniyelerden, JER NaN'sız ortalama, F1 mikro). Aynı deney birden çok dosyada varsa sonraki geçerlidir. Hata: `FileNotFoundError`, `ValueError` (boş liste, boş veya tanınmayan CSV).
 - Defterin 9. bölümü bu iki fonksiyonu kullanır; hata verirlerse defter içindeki yedek çizime düşer.
 
+### 3.14 `src/vad_olcum.py` (sahibi: Sefkan)
+
+Komut satırı: `python -m src.vad_olcum --zip Z --rttm-dizin R --liste L [L ...] --cikti-dizin C [--limit N]` (çıkış kodu 0 başarılı, 1 girdi hatası, 2 iç hata; hata veren kayıt atlanır ve `hata_gunlugu.txt`'ye yazılır).
+
+```python
+cercevelerden_bolgeler(kararlar, cerceve_sn: float) -> list[tuple[float, float]]
+yumusat(bolgeler, sure_sn: float, min_konusma_ms=250, min_sessizlik_ms=300, kenar_payi_ms=30) -> list[tuple[float, float]]
+maske(bolgeler, sure_sn: float, cozunurluk_sn: float = 0.01) -> np.ndarray
+hata_olc(ref_maske, hyp_maske, cozunurluk_sn: float = 0.01) -> dict
+ozet_hesapla(satirlar: list[dict]) -> list[dict]
+webrtc_bolgeleri(ses: np.ndarray, sr: int, agresiflik: int) -> list[tuple[float, float]]
+olc(zip_yol, rttm_dizin, kayitlar, cikti_dizin, limit=None, log=print) -> list[dict]
+main(argv: list[str] | None = None) -> int
+```
+- **VAD'lar:** `silero` = `vad.konusma_bolgeleri` (hattın ayarları; Silero'nun varsayılan 30 ms kenar payı dahil). `webrtc2`, `webrtc3` = WebRTC VAD, 30 ms çerçeve (16 bit PCM; son eksik çerçeve atılır), agresiflik 2 ve 3; kararlar `yumusat` ile Silero ile aynı biçimde işlenir: önce 300 ms'den kısa boşluklar doldurulur, sonra 250 ms'den kısa konuşma atılır, sonra her bölge iki yandan 30 ms genişletilir (`[0, süre]` ile kırpılır, örtüşenler birleşir). Süre karşılaştırmaları tamsayı milisaniyeyle yapılır.
+- **Referans:** RTTM segmentlerinin birleşimi = konuşma. Maske süresi `max(ses süresi, son RTTM bitişi)`.
+- **Ölçüler** (10 ms çerçeve, tüm kayıtların çerçeveleri toplanarak; kayıt ortalaması değil): `kacirilan_yuzde`, `yanlis_alarm_yuzde`, `toplam_hata_yuzde` referans konuşma süresinin yüzdesi (pyannote detection error rate gibi, DER bileşenleriyle karşılaştırılabilir); `yanlis_alarm_sessiz_yuzde` yanlış alarm / referansta konuşma olmayan süre; `sn_per_saat` toplam işlem süresi / toplam ses süresi (saat; Silero model yükleme süresi hariç).
+- **Çıktılar:** `{cikti}/vad_kayitlar.csv` (kayıt × VAD satırları: `vad, kayit, ses_sn, ref_konusma_sn, ref_sessiz_sn, kacirilan_sn, yanlis_alarm_sn, sure_sn`; yapılan kayıt × VAD çiftleri yeniden çalıştırmada atlanır) ve `{cikti}/vad_karsilastirma.csv` (VAD başına: `vad, kayit_sayisi, ses_saat, kacirilan_yuzde, yanlis_alarm_yuzde, toplam_hata_yuzde, yanlis_alarm_sessiz_yuzde, sn_per_saat`; yalnızca verilen liste/limit üzerinden). Süre sınırı (`MAKS_SURE_SN`) uygulanmaz.
+- Defterin 11. bölümü çalıştırır; 10. bölümün kopyalanacak özeti tabloyu içerir.
+
 ## 4. Kenar durumlar
 
 - **Kısa dosya / kısa konuşma (1,5 sn'den az):** Hata verilmez. Uyarı yazılır, tüm konuşma tek segment sayılır, tek konuşmacı (`spk00`) atanır, çıkış kodu 0. Bu durumda `main` kümelemeyi hiç çağırmaz; VAD bölgelerinin her biri `spk00` etiketiyle doğrudan segment olur. (Ayrıca `kumele`, `N == 1` için `[0]` döner.)

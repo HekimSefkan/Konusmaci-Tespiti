@@ -64,6 +64,16 @@ SOZLESME = {
         "main": ["argv"],
     },
     "src.uyumluluk": {"speechbrain_hazirla": []},
+    "src.vad_olcum": {
+        "cercevelerden_bolgeler": ["kararlar", "cerceve_sn"],
+        "yumusat": ["bolgeler", "sure_sn", "min_konusma_ms", "min_sessizlik_ms", "kenar_payi_ms"],
+        "maske": ["bolgeler", "sure_sn", "cozunurluk_sn"],
+        "hata_olc": ["ref_maske", "hyp_maske", "cozunurluk_sn"],
+        "ozet_hesapla": ["satirlar"],
+        "webrtc_bolgeleri": ["ses", "sr", "agresiflik"],
+        "olc": ["zip_yol", "rttm_dizin", "kayitlar", "cikti_dizin", "limit", "log"],
+        "main": ["argv"],
+    },
     "src.gorsel": {
         "zaman_cizelgesi": ["ref_rttm", "hyp_rttm", "png_yolu", "baslik"],
         "sonuc_grafigi": ["csv_yolu", "png_yolu"],
