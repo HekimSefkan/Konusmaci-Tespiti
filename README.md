@@ -101,7 +101,7 @@ Colab'ın varsayılan Python'u 3.10 değil, daha yenidir (Python 3.12 veya üst�
    ```python
    !pip install -r requirements.txt
    ```
-   Colab'da torch önceden kuruludur; `requirements.txt` torch'u `2.5.1` (CPU sürümü, `--extra-index-url` satırı sayesinde) olarak sabitlediği için Colab'ın torch'u bu sürümle değiştirilir. Böylece Windows ve Colab aynı sürümü kullanır. Ek dosya gerekmez.
+   Bu komut torch/torchaudio sürümünü `2.5.1` olarak sabitler. `notebooks/hafta5_dogrulama.ipynb` ise Colab'ın kurulu torch/torchaudio paketlerini korur ve diğer bağımlılıkları kurar; iki kurulumun paket sürümleri aynı olmayabilir. Deney karşılaştırmalarında kullanılan Python ve paket sürümlerini kaydedin.
 5. **Çalışma zamanını yeniden başlatın.** Kurulum Colab'ın önceden yüklü numpy gibi paketlerini değiştirir: *Çalışma zamanı → Oturumu yeniden başlat*. Yeniden başlattıktan sonra 2–4. adımları tekrarlamanız gerekmez.
 6. **Kurulumu doğrulayın.**
    ```python
@@ -118,3 +118,7 @@ Colab'ın varsayılan Python'u 3.10 değil, daha yenidir (Python 3.12 veya üst�
 - **SpeechBrain modeli ilk çalıştırmada indirilir.** İnternet bağlantısı gerekir; model dosyaları önbelleğe alınır. Windows'ta modeli çağırırken `local_strategy=LocalStrategy.COPY` verin; aksi halde "Gereken ayrıcalık istemci tarafından sağlanmıyor" (WinError 1314) hatası çıkar (`tests/kurulum_kontrol.py` örnek kullanım içerir).
 - **Silero VAD ve Türkçe karakterli yol:** Windows'ta `load_silero_vad()` varsayılan modeli `Sınıf` gibi ASCII dışı yollarda açamaz; `load_silero_vad(onnx=True)` kullanın.
 - **Sürüm sabitleme:** `requirements.txt` içindeki tüm sürümler `==` ile sabittir; sürümleri değiştirmeden önce `python tests/kurulum_kontrol.py` komutunu yeniden çalıştırın.
+
+## Hafta 5 doğrulama
+
+Kabul ölçümleri, E5 eşik deneyi, çoklu RTTM çizelgesi ve Colab doğrulaması için [kullanım belgesine](docs/hafta5_dogrulama.md) bakın. Bu araçlar varsayılan yöntemi değiştirmez; ses/model/ölçüm dosyaları repo dışında kalır.
