@@ -11,6 +11,7 @@ def test_dosya_bicimi():
         veri = json.load(f)
     assert {"kaynak", "tarih", "esik", "mfcc_olcek"} <= set(veri)
     assert set(veri["esik"]) == {"mfcc", "ecapa"}
+    assert veri["e5_esik"] == pytest.approx(0.70) and veri["e5_esik_kaynak"] == "Hafta 5, eğitim yarısı"
 
 
 def test_ayarlanmis_esikler():
