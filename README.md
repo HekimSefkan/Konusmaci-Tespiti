@@ -24,6 +24,7 @@ Proje kapsamında ses verileri üzerindeki gürültüler temizlenecek, Mel-Freka
 ├── src/                # Kaynak kodlar (her dosyanın sahibi CONTRIBUTING.md'de)
 ├── tests/              # Testler (python tests/test_arayuz.py)
 ├── docs/               # Belgeler; modüller arası arayüz sözleşmesi: docs/arayuz.md
+├── app.py              # Web arayüzü (python app.py)
 ├── requirements.txt    # Python bağımlılıkları
 ├── CONTRIBUTING.md     # Dal, PR ve commit kuralları
 └── README.md           # Proje tanıtım dosyası
@@ -35,6 +36,20 @@ python -m src.main <girdi_ses> -o <cikti.rttm>
 ```
 Varsayılan yöntem **ECAPA**'dır (Hafta 4'te VoxConverse dev değerlendirme yarısında en iyi sonuç). MFCC için `--yontem mfcc` verin. Eşik verilmezse yöntemin eğitim yarısında ayarlanmış eşiği `src/varsayilanlar.json`'dan alınır; `--esik E` veya `--konusmaci-sayisi N` ile değiştirilebilir. Toplu deneyler için `python -m src.toplu` ve `notebooks/hafta4_deneyler.ipynb`.
 Çıkış kodları: 0 başarılı, 1 girdi hatası (bulunamadı/bozuk/desteklenmeyen), 2 iç hata. Modül fonksiyonları ve veri tipleri için bkz. [docs/arayuz.md](docs/arayuz.md); katkı kuralları için [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Arayüzü çalıştırma
+
+Gradio web arayüzü ses dosyasını (WAV, MP3, FLAC; en fazla 1800 sn) hattan geçirir ve şunları gösterir: renkli konuşmacı zaman çizelgesi, segment tablosu, konuşmacı başına toplam süre, değişim noktaları, indirilebilir RTTM ve işlem süresi. Referans RTTM verilirse DER, JER ve değişim F1 de hesaplanır (±0,25 sn collar, örtüşme dahil). Yöntem (ECAPA varsayılan, MFCC), konuşmacı sayısı ve eşik isteğe bağlıdır; eşik boşsa `src/varsayilanlar.json` kullanılır.
+
+```bash
+python app.py
+```
+Yerelde http://127.0.0.1:7860 adresinde açılır (`--port` ile değiştirilebilir). Kurulum için aşağıdaki "Kurulum" bölümüne bakın; `gradio` `requirements.txt`'tedir.
+
+```bash
+python app.py --share
+```
+Gradio'nun genel geçici bağlantısını da üretir (Colab için). Colab'da hazır defter: [notebooks/arayuz_demo.ipynb](notebooks/arayuz_demo.ipynb) (Drive'ı bağlar, repoyu günceller, bağımlılıkları Colab'ın torch'u ile kurar, `KT_MODEL_ONBELLEK`'i Drive'daki ECAPA önbelleğine ayarlar ve arayüzü başlatır). Modeller ilk analizde bir kez yüklenir; GPU varsa ECAPA onu kullanır. Arayüz mantığı `src/arayuz.py`'dedir.
 
 ## Kurulum
 
