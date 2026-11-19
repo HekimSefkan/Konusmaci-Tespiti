@@ -37,17 +37,18 @@ def hat_segmentleri(bolgeler, pencereler, X, konusmaci_sayisi=None, esik=None):
     return cikti.segmentleri_birlestir(pencereler, etiketler)
 
 
-def calistir(girdi: str, cikti_yolu: str, yontem: str, konusmaci_sayisi: int | None,
-             esik: float | None = None, maks_sure_sn: float | None = ses_girdi.MAKS_SURE_SN) -> None:
-    """Hattı sırayla çalıştırır ve RTTM yazar.
+def segmentleri_hesapla(girdi: str, yontem: str = VARSAYILAN_YONTEM, konusmaci_sayisi: int | None = None,
+                        esik: float | None = None, maks_sure_sn: float | None = ses_girdi.MAKS_SURE_SN
+                        ) -> tuple[list[tuple[float, float, str]], float]:
+    """Hattı çalıştırır; dosya yazmadan (segmentler, ses süresi sn) döndürür.
 
     esik None ve konuşmacı sayısı verilmemişse yöntemin ayarlanmış eşiği
     (varsayilanlar.esik) kullanılır. MFCC vektörleri kümelemeden önce genel ölçekle
     standartlaştırılır (varsayilanlar.mfcc_olcek; yoksa ham MFCC ve uyarı).
+    Hata: FileNotFoundError, ValueError (ses_girdi.ses_yukle ile aynı).
     """
     if esik is None and konusmaci_sayisi is None:
         esik = varsayilanlar.esik(yontem)
-    dosya_id = os.path.splitext(os.path.basename(girdi))[0]
     ses, sr = ses_girdi.ses_yukle(girdi, maks_sure_sn)
     bolgeler = vad.konusma_bolgeleri(ses, sr)
     pencereler, X = [], None
@@ -61,7 +62,14 @@ def calistir(girdi: str, cikti_yolu: str, yontem: str, konusmaci_sayisi: int | N
             if olcek is None:
                 warnings.warn("MFCC ölçeği src/varsayilanlar.json'da yok; ham MFCC kümeleniyor")
             X = oznitelik.olcekle(X, olcek)
-    segmentler = hat_segmentleri(bolgeler, pencereler, X, konusmaci_sayisi, esik)
+    return hat_segmentleri(bolgeler, pencereler, X, konusmaci_sayisi, esik), len(ses) / sr
+
+
+def calistir(girdi: str, cikti_yolu: str, yontem: str, konusmaci_sayisi: int | None,
+             esik: float | None = None, maks_sure_sn: float | None = ses_girdi.MAKS_SURE_SN) -> None:
+    """Hattı sırayla çalıştırır (segmentleri_hesapla), RTTM yazar ve tabloyu basar."""
+    dosya_id = os.path.splitext(os.path.basename(girdi))[0]
+    segmentler, _ = segmentleri_hesapla(girdi, yontem, konusmaci_sayisi, esik, maks_sure_sn)
     cikti.rttm_yaz(segmentler, dosya_id, cikti_yolu)
     if not segmentler:  # sessiz dosya: boş RTTM
         return

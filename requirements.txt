@@ -36,5 +36,10 @@ pyannote.metrics==4.1
 # --- Gorsellestirme ---
 matplotlib==3.10.7
 
+# --- Web arayuzu (app.py) ---
+# 6.17.3: huggingface_hub==0.36.0 ile uyumlu en yeni gradio (6.18+ huggingface-hub>=1.2 ister;
+# speechbrain 1.0.3 icin hub 1.x'e gecilemez). Python >=3.10 (3.13'te audioop-lts ile).
+gradio==6.17.3
+
 # --- Test ---
 pytest==9.1.1

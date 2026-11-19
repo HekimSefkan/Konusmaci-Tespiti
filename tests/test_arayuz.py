@@ -35,6 +35,18 @@ SOZLESME = {
         "main": ["argv"],
         "kisa_konusma": ["bolgeler"],
         "hat_segmentleri": ["bolgeler", "pencereler", "X", "konusmaci_sayisi", "esik"],
+        "segmentleri_hesapla": ["girdi", "yontem", "konusmaci_sayisi", "esik", "maks_sure_sn"],
+    },
+    "src.arayuz": {
+        "girdileri_denetle": ["konusmaci_sayisi", "esik"],
+        "analiz": ["ses_yolu", "yontem", "konusmaci_sayisi", "esik", "ref_rttm", "cikti_dizin", "hat"],
+        "segment_tablosu": ["segmentler"],
+        "konusmaci_toplamlari": ["segmentler"],
+        "degisim_tablosu": ["segmentler"],
+        "metrik_metni": ["metrikler"],
+        "hata_mesaji": ["dosya", "hata"],
+        "arayuz_cikti": ["ses_yolu", "yontem", "konusmaci_sayisi", "esik", "ref_rttm", "hat"],
+        "arayuz_olustur": ["hat"],
     },
     "src.bolme": {
         "grup": ["sayi"],
@@ -80,6 +92,7 @@ SOZLESME = {
     },
     "src.gorsel": {
         "zaman_cizelgesi": ["ref_rttm", "hyp_rttm", "png_yolu", "baslik"],
+        "zaman_seritleri": ["seritler", "png_yolu", "baslik"],
         "sonuc_grafigi": ["csv_yolu", "png_yolu"],
     },
     "src.varsayilanlar": {"yukle": [], "esik": ["yontem"], "mfcc_olcek": []},

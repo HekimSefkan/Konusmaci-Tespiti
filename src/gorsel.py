@@ -41,11 +41,26 @@ def zaman_cizelgesi(ref_rttm: str, hyp_rttm: str, png_yolu: str, baslik: str | N
     Konuşma olmayan şeritte "konuşma yok" yazar.
     Dönüş: png_yolu. Hata: FileNotFoundError, ValueError (RTTM bozuk).
     """
-    seritler = [("Referans", cikti.rttm_oku(ref_rttm)), ("Sistem", cikti.rttm_oku(hyp_rttm))]
+    if baslik is None:
+        baslik = os.path.splitext(os.path.basename(ref_rttm))[0]
+    return zaman_seritleri({"Referans": cikti.rttm_oku(ref_rttm), "Sistem": cikti.rttm_oku(hyp_rttm)},
+                           png_yolu, baslik)
+
+
+def zaman_seritleri(seritler: dict, png_yolu: str, baslik: str | None = None) -> str:
+    """Bellekteki segment listelerini ({şerit adı: [(bas, bit, etiket)]}) alt alta şeritlerde çizer.
+
+    zaman_cizelgesi ile aynı çizim; şerit sayısı 1 veya daha fazla olabilir (ör. yalnızca
+    "Sistem" ya da "Referans" + "Sistem"). Dönüş: png_yolu. Hata: ValueError (şerit yok).
+    """
+    seritler = list(seritler.items())
+    if not seritler:
+        raise ValueError("en az bir şerit gerekli")
     bitis = max((b for _, segler in seritler for _, b, _ in segler), default=1.0)
     satir_sayilari = [max(1, len({e for *_, e in segler})) for _, segler in seritler]
-    sekil, eksenler = _yeni_sekil(12, 1.2 + 0.32 * sum(satir_sayilari) + 0.6, nrows=2, ncols=1, sharex=True,
-                                  gridspec_kw={"height_ratios": satir_sayilari})
+    sekil, eksenler = _yeni_sekil(12, 1.2 + 0.32 * sum(satir_sayilari) + 0.6, nrows=len(seritler), ncols=1,
+                                  sharex=True, squeeze=False, gridspec_kw={"height_ratios": satir_sayilari})
+    eksenler = list(eksenler[:, 0])
     for ax, (ad, segler) in zip(eksenler, seritler):
         etiketler = sorted({e for *_, e in segler})
         renk = _renkler(len(etiketler))
@@ -59,9 +74,8 @@ def zaman_cizelgesi(ref_rttm: str, hyp_rttm: str, png_yolu: str, baslik: str | N
             ax.text(0.5, 0.5, "konuşma yok", transform=ax.transAxes, ha="center", va="center")
     eksenler[-1].set_xlim(0, bitis)
     eksenler[-1].set_xlabel("zaman (sn)")
-    if baslik is None:
-        baslik = os.path.splitext(os.path.basename(ref_rttm))[0]
-    eksenler[0].set_title(baslik)
+    if baslik:
+        eksenler[0].set_title(baslik)
     return _kaydet(sekil, png_yolu)
 
 

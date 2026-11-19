@@ -171,7 +171,10 @@ Komut satırı: `python -m src.main <girdi_ses> -o <cikti.rttm> [--yontem ecapa|
 ```python
 kisa_konusma(bolgeler: list[tuple[float, float]]) -> bool
 hat_segmentleri(bolgeler, pencereler, X, konusmaci_sayisi=None, esik=None) -> list[tuple[float, float, str]]
+segmentleri_hesapla(girdi: str, yontem: str = "ecapa", konusmaci_sayisi: int | None = None,
+                    esik: float | None = None, maks_sure_sn: float | None = 1800) -> tuple[list[tuple[float, float, str]], float]
 ```
+- `segmentleri_hesapla`: tek dosyalık hat (ses_yukle → VAD → öznitelik → `hat_segmentleri`); dosya yazmaz, ekrana basmaz. Dönüş `(segmentler, ses_sn)`. Eşik ve MFCC ölçeği kuralları `--esik` ile aynıdır. Hata: `FileNotFoundError`, `ValueError` (`ses_yukle` ile aynı). `main` (RTTM yazıp tabloyu basar) ve web arayüzü (3.15) bunu kullanır.
 - `kisa_konusma`: toplam konuşma `MIN_KONUSMA_SN` (1,5 sn) altında mı.
 - `hat_segmentleri`: konuşma yoksa `[]`; kısa konuşmada kümeleme atlanır, her bölge `spk00` olur (`pencereler` ve `X` kullanılmaz); aksi halde `kumele` + `segmentleri_birlestir`. `main` ve `toplu` aynı kuralı bu fonksiyonla uygular.
 
@@ -279,7 +282,7 @@ yukle() -> dict
 esik(yontem: str) -> float
 mfcc_olcek() -> dict | None
 ```
-- `src/varsayilanlar.json`, eğitim yarısında ayarlanan değerlerin tek kaynağıdır: `{"kaynak", "tarih", "esik": {"mfcc", "ecapa"}, "mfcc_olcek": {"ortalama": [26], "std": [26], "pencere_sayisi"} | null}`. Değerler `src.toplu --esik-tara` çıktısından (`esikler.json`) alınır; defterin 10. bölümü bu dosyanın içeriğini tek satırlık JSON olarak basar ("REPO SABİTLERİ").
+- `src/varsayilanlar.json`, eğitim yarısında ayarlanan değerlerin tek kaynağıdır: `{"kaynak", "tarih", "esik": {"mfcc", "ecapa"}, "e5_esik", "e5_esik_kaynak", "mfcc_olcek": {"ortalama": [26], "std": [26], "pencere_sayisi"} | null}`. `e5_esik` (0,70): E5 hattının (`degisim_modeli.e5_segmentleri`) AHC eşiği; kaynak Hafta 5, eğitim yarısında seçildi. `yukle` bu alanı denetlemez; E4/E1–E3 varsayılanları (`esik`) bundan etkilenmez. Değerler `src.toplu --esik-tara` çıktısından (`esikler.json`) alınır; defterin 10. bölümü bu dosyanın içeriğini tek satırlık JSON olarak basar ("REPO SABİTLERİ").
 - `yukle`: dosyayı bir kez okur ve denetler. Hata: `ValueError` (iki yöntemin eşiği yok veya pozitif değil; `mfcc_olcek` 26 ortalama ve 26 pozitif std içermiyor). `esik`: yöntemin eşiği; bilinmeyen yöntemde `ValueError`. `mfcc_olcek`: ölçek veya henüz doldurulmadıysa `None`.
 - Kullananlar: `kumeleme.VARSAYILAN_ESIK`, `main.calistir`, `toplu.deney_calistir` ve `toplu` komut satırı (`--esikler` verilmediğinde).
 - Hafta 4 değerleri (tarama tarihi 2026-10-27): eşik mfcc 0,77122, ecapa 0,79346 (eşik taramasında uyarı yok); MFCC ölçeği eğitim yarısının 42 520 penceresinden (26 ortalama, 26 std).
@@ -288,8 +291,10 @@ mfcc_olcek() -> dict | None
 
 ```python
 zaman_cizelgesi(ref_rttm: str, hyp_rttm: str, png_yolu: str, baslik: str | None = None) -> str
+zaman_seritleri(seritler: dict[str, list[tuple[float, float, str]]], png_yolu: str, baslik: str | None = None) -> str
 sonuc_grafigi(csv_yolu: str | list[str], png_yolu: str) -> str
 ```
+- `zaman_seritleri`: bellekteki segment listelerini `{şerit adı: segmentler}` sırasıyla alt alta çizer (1 veya daha fazla şerit; çizim kuralları `zaman_cizelgesi` ile aynı). `zaman_cizelgesi` bunu `{"Referans", "Sistem"}` ile çağırır; web arayüzü yalnızca `{"Sistem"}` ya da referans verilmişse ikisini çizer. `baslik` boşsa başlık yazılmaz. Hata: `ValueError` (şerit yok).
 - matplotlib fonksiyon içinde import edilir; `pyplot` kullanılmaz, çizim doğrudan Agg tuvaline (`FigureCanvasAgg`) yapılır ve PNG'ye yazılır. Ekranda pencere açılmaz, defterin satır içi arka ucu değişmez. Dönüş: `png_yolu` (klasör yoksa oluşturulur).
 - `zaman_cizelgesi`: aynı kaydın referans ve sistem RTTM'ini alt alta iki şeritte çizer (Hafta 2 Şekil 2 gibi): her şeritte konuşmacı başına bir satır, zaman ekseni saniye ve iki şeritte ortak. Referans ve sistem etiketleri eşleştirilmez; renkler her şeritte kendi içinde atanır. Boş RTTM'de şeritte "konuşma yok" yazar. `baslik` verilmezse referans dosyasının adı. Hata: `FileNotFoundError`, `ValueError` (RTTM bozuk).
 - `sonuc_grafigi`: deney başına DER, JER ve değişim F1'ini gruplu çubuk grafikle çizer. `csv_yolu`: `ozet.csv` (`der`, `jer_ort`, `mikro_f1` doğrudan), tek bir deney CSV'si (ilk beş sütun `deney, kayit, der, jer, f1`) veya bunların listesi; deney CSV'leri `toplu.ozet_hesapla` ile toplanır (DER toplam saniyelerden, JER NaN'sız ortalama, F1 mikro). Aynı deney birden çok dosyada varsa sonraki geçerlidir. Hata: `FileNotFoundError`, `ValueError` (boş liste, boş veya tanınmayan CSV).
@@ -319,6 +324,30 @@ main(argv: list[str] | None = None) -> int
 - **Gürültülü kayıt adayları (kaba SNR):** `snr_tahmini` Silero'nun konuşma bölgelerinin ortalama gücünü konuşma olmayan bölgelerin ortalama gücüne böler (dB); `(snr_db, konusmasiz_sn)` döner. Konuşma olmayan süre `MIN_KONUSMASIZ_SN` = 1,0 sn'den kısaysa, konuşma yoksa veya güçlerden biri 0 ise `NaN`. Silero satırının `snr_db` ve `konusmasiz_sn` sütunlarına yazılır (WebRTC satırlarında boş). Bu yalnızca sıralama için **kaba bir tahmindir** (konuşma gücü gürültüyü de içerir; müzik/alkış konuşma sayılabilir); son seçim dinleyerek yapılır.
 - **Dinleme parçaları:** `--dinleme-dizin` verilirse `dinleme_yaz`, NaN olmayan en düşük SNR'lı `--dinleme-sayisi` kaydı seçer; her birinde `dinleme_parcasi` önünde en uzun sessizlik olan konuşma başlangıcını ortalayan `--parca-sn` uzunluğunda bir parça seçer (ilk yarı konuşma olmayan, ikinci yarı konuşma; dosya sınırında kaydırılır; konuşma yoksa dosyanın başı). Parçalar `<kayit>_<bas>s_snr<x>dB.wav` (16 kHz, `on_isle` sonrası ses) olarak yazılır, liste `{cikti}/dinleme_listesi.csv` (`kayit, snr_db, konusmasiz_sn, bas_sn, bit_sn, dosya`). Yalnızca Colab'da, Drive'a (`Hafta4/dinleme/`).
 - Defterin 11. bölümü çalıştırır; 10. bölümün kopyalanacak özeti VAD tablosunu ve dinleme listesini içerir.
+
+### 3.15 `src/arayuz.py` ve `app.py` (web arayüzü)
+
+Başlatma: `python app.py [--share] [--host 127.0.0.1] [--port 7860]` (`--share`: Gradio genel geçici bağlantısı, Colab için). Colab defteri: `notebooks/arayuz_demo.ipynb`.
+
+```python
+girdileri_denetle(konusmaci_sayisi, esik) -> tuple[int | None, float | None]
+analiz(ses_yolu: str, yontem: str = "ecapa", konusmaci_sayisi: int | None = None, esik: float | None = None,
+       ref_rttm: str | None = None, cikti_dizin: str | None = None, hat=None) -> Sonuc
+segment_tablosu(segmentler) -> list[list]          # [konuşmacı, başlangıç sn, bitiş sn, süre sn]
+konusmaci_toplamlari(segmentler) -> list[list]     # [konuşmacı, toplam sn, yüzde], toplama göre azalan
+degisim_tablosu(segmentler) -> list[list]          # [sıra, zaman sn, dk:ss.mmm] (cikti.degisim_noktalari)
+metrik_metni(metrikler: dict | None) -> str        # Markdown: DER, JER, değişim F1 ve bileşenleri
+hata_mesaji(dosya: str | None, hata: BaseException) -> str
+arayuz_cikti(ses_yolu, yontem, konusmaci_sayisi, esik, ref_rttm, hat=None) -> tuple   # 7 çıktı
+arayuz_olustur(hat=None) -> gradio.Blocks
+```
+- **gradio** yalnızca `arayuz_olustur` içinde import edilir; diğer fonksiyonlar gradio ve model olmadan çalışır. `hat`: `(girdi, yontem, konusmaci_sayisi, esik) -> (segmentler, ses_sn)`; verilmezse `main.segmentleri_hesapla` (testlerde sahte hat verilir).
+- `girdileri_denetle`: boş değer (`None`, `""`, NaN) `None` olur. Hata: `ValueError` (konuşmacı sayısı ≥ 1 tam sayı değil; eşik > 0 değil). Eşik boşsa yöntemin `varsayilanlar.json` eşiği kullanılır (`segmentleri_hesapla`).
+- `analiz`: referans RTTM hat çalışmadan önce okunur (bozuksa `ValueError`, mesajda referans dosyasının adı). Hat süresi ölçülür (`islem_sn`; ilk istekte model yükleme dahildir). `<dosya_id>.rttm` ve `<dosya_id>.png` (`gorsel.zaman_seritleri`) `cikti_dizin`'e (verilmezse geçici klasör) yazılır; `dosya_id` uzantısız ses dosyası adıdır. Referans varsa `degerlendirme._segmentleri_degerlendir(ref, hyp, collar=0.5, tolerans_sn=0.5)`.
+- `Sonuc` alanları: `dosya_id, segmentler, ses_sn, islem_sn, rttm_yolu, png_yolu, referans, metrikler` (referans yoksa son ikisi `None`).
+- `arayuz_cikti`: düğme işleyicisi; **istisna fırlatmaz**. Sıra: `(durum Markdown, çizelge PNG, segment tablosu, konuşmacı toplamları, değişim noktaları, RTTM yolu, metrik Markdown)`. Dosya seçilmemişse veya ayar hatalıysa durumda açıklama, diğer çıktılar boş. Girdi hatası ve beklenmeyen hata `hata_mesaji` ile gösterilir.
+- `hata_mesaji`: dosya adını içeren Türkçe mesaj: bulunamadı, desteklenmeyen biçim (WAV/MP3/FLAC), çok uzun (`ses_girdi.MAKS_SURE_SN` = 1800 sn), bozuk/okunamıyor, diğer girdi hatası veya beklenmeyen hata (istisna türü ile); altında ayrıntı.
+- **Modeller:** ECAPA ve Silero VAD ilk analizde bir kez yüklenir ve süreç boyunca tutulur (`oznitelik.ecapa_modeli`, `vad._silero_modeli`); GPU varsa ECAPA onu kullanır. İstekler kuyrukla sırayla işlenir (`queue()`).
 
 ## 4. Kenar durumlar
 
