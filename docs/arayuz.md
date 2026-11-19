@@ -338,13 +338,17 @@ konusmaci_toplamlari(segmentler) -> list[list]     # [konuşmacı, toplam sn, y�
 degisim_tablosu(segmentler) -> list[list]          # [sıra, zaman sn, dk:ss.mmm] (cikti.degisim_noktalari)
 metrik_metni(metrikler: dict | None) -> str        # Markdown: DER, JER, değişim F1 ve bileşenleri
 hata_mesaji(dosya: str | None, hata: BaseException) -> str
-arayuz_cikti(ses_yolu, yontem, konusmaci_sayisi, esik, ref_rttm, hat=None) -> tuple   # 7 çıktı
+ses_yolu_sec(yuklenen: str | None, sunucu_yolu: str | None) -> str | None
+otomatik_referans(ses_yolu: str) -> str | None
+arayuz_cikti(ses_yolu, yontem, konusmaci_sayisi, esik, ref_rttm, sunucu_yolu=None, hat=None) -> tuple   # 7 çıktı
 arayuz_olustur(hat=None) -> gradio.Blocks
 ```
 - **gradio** yalnızca `arayuz_olustur` içinde import edilir; diğer fonksiyonlar gradio ve model olmadan çalışır. `hat`: `(girdi, yontem, konusmaci_sayisi, esik) -> (segmentler, ses_sn)`; verilmezse `main.segmentleri_hesapla` (testlerde sahte hat verilir).
 - `girdileri_denetle`: boş değer (`None`, `""`, NaN) `None` olur. Hata: `ValueError` (konuşmacı sayısı ≥ 1 tam sayı değil; eşik > 0 değil). Eşik boşsa yöntemin `varsayilanlar.json` eşiği kullanılır (`segmentleri_hesapla`).
 - `analiz`: referans RTTM hat çalışmadan önce okunur (bozuksa `ValueError`, mesajda referans dosyasının adı). Hat süresi ölçülür (`islem_sn`; ilk istekte model yükleme dahildir). `<dosya_id>.rttm` ve `<dosya_id>.png` (`gorsel.zaman_seritleri`) `cikti_dizin`'e (verilmezse geçici klasör) yazılır; `dosya_id` uzantısız ses dosyası adıdır. Referans varsa `degerlendirme._segmentleri_degerlendir(ref, hyp, collar=0.5, tolerans_sn=0.5)`.
 - `Sonuc` alanları: `dosya_id, segmentler, ses_sn, islem_sn, rttm_yolu, png_yolu, referans, metrikler` (referans yoksa son ikisi `None`).
+- `ses_yolu_sec`: "Sunucudaki ses yolu" alanı (ör. Colab'da Drive yolu) doluysa o yol kullanılır, yüklenen dosya yok sayılır; baştaki/sondaki boşluk ve tırnak atılır. Hata: `FileNotFoundError` (yol yok veya klasör), `ValueError` (okunamıyor); mesajda dosya adı ve yol.
+- `otomatik_referans`: referans RTTM verilmemişse, ses dosyasının uzantısız adıyla aynı adlı RTTM önce `data/sample/`, sonra `data/sample/edge/` içinde aranır; bulunursa referans olarak kullanılır ve sonuçta `Referans: data/sample/... (otomatik)` yazılır (yüklenen referansta `(yüklenen)`).
 - `arayuz_cikti`: düğme işleyicisi; **istisna fırlatmaz**. Sıra: `(durum Markdown, çizelge PNG, segment tablosu, konuşmacı toplamları, değişim noktaları, RTTM yolu, metrik Markdown)`. Dosya seçilmemişse veya ayar hatalıysa durumda açıklama, diğer çıktılar boş. Girdi hatası ve beklenmeyen hata `hata_mesaji` ile gösterilir.
 - `hata_mesaji`: dosya adını içeren Türkçe mesaj: bulunamadı, desteklenmeyen biçim (WAV/MP3/FLAC), çok uzun (`ses_girdi.MAKS_SURE_SN` = 1800 sn), bozuk/okunamıyor, diğer girdi hatası veya beklenmeyen hata (istisna türü ile); altında ayrıntı.
 - **Modeller:** ECAPA ve Silero VAD ilk analizde bir kez yüklenir ve süreç boyunca tutulur (`oznitelik.ecapa_modeli`, `vad._silero_modeli`); GPU varsa ECAPA onu kullanır. İstekler kuyrukla sırayla işlenir (`queue()`).

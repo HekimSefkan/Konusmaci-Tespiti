@@ -45,7 +45,9 @@ SOZLESME = {
         "degisim_tablosu": ["segmentler"],
         "metrik_metni": ["metrikler"],
         "hata_mesaji": ["dosya", "hata"],
-        "arayuz_cikti": ["ses_yolu", "yontem", "konusmaci_sayisi", "esik", "ref_rttm", "hat"],
+        "ses_yolu_sec": ["yuklenen", "sunucu_yolu"],
+        "otomatik_referans": ["ses_yolu"],
+        "arayuz_cikti": ["ses_yolu", "yontem", "konusmaci_sayisi", "esik", "ref_rttm", "sunucu_yolu", "hat"],
         "arayuz_olustur": ["hat"],
     },
     "src.bolme": {

@@ -26,6 +26,8 @@ METRIK_NOTU = (
     "başarısı (0–1); yüksek olan iyidir. DER/JER ±0,25 sn collar ile, örtüşen konuşma dahil hesaplanır."
 )
 YONTEMLER = (("ECAPA (önerilen)", "ecapa"), ("MFCC", "mfcc"))
+KOK = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ORNEK_RTTM_DIZINLERI = ("data/sample", "data/sample/edge")  # otomatik referans aranan klasörler (köke göre)
 COLLAR = 0.5       # pyannote tam genişlik: ±0,25 sn
 TOLERANS_SN = 0.5  # değişim noktası eşleşme toleransı
 
@@ -64,6 +66,37 @@ def girdileri_denetle(konusmaci_sayisi, esik) -> tuple[int | None, float | None]
         if not e > 0:
             raise ValueError(f"eşik 0'dan büyük olmalı (girilen: {esik})")
     return k, e
+
+
+def ses_yolu_sec(yuklenen: str | None, sunucu_yolu: str | None) -> str | None:
+    """Kullanılacak ses yolu: sunucu_yolu doluysa o (yüklenen dosya yok sayılır), değilse yüklenen.
+
+    Hata: FileNotFoundError (yol yok veya klasör), ValueError (dosya okunamıyor); mesajda dosya adı ve yol.
+    """
+    if _bos_mu(sunucu_yolu):
+        return yuklenen or None
+    yol = os.path.expanduser(sunucu_yolu.strip().strip('"').strip("'"))
+    ad = os.path.basename(yol) or yol
+    if not os.path.exists(yol):
+        raise FileNotFoundError(f"{ad}: sunucuda bu yol yok ({yol})")
+    if not os.path.isfile(yol):
+        raise FileNotFoundError(f"{ad}: bir klasör, ses dosyası değil ({yol})")
+    try:
+        with open(yol, "rb") as f:
+            f.read(1)
+    except OSError as e:
+        raise ValueError(f"{ad}: okunamadı ({e})") from e
+    return yol
+
+
+def otomatik_referans(ses_yolu: str) -> str | None:
+    """Ses dosyasının uzantısız adıyla aynı adlı RTTM data/sample/ veya data/sample/edge/ içinde varsa yolu."""
+    dosya_id = os.path.splitext(os.path.basename(ses_yolu))[0]
+    for dizin in ORNEK_RTTM_DIZINLERI:
+        yol = os.path.join(KOK, *dizin.split("/"), f"{dosya_id}.rttm")
+        if os.path.isfile(yol):
+            return yol
+    return None
 
 
 def analiz(ses_yolu: str, yontem: str = ana.VARSAYILAN_YONTEM, konusmaci_sayisi: int | None = None,
@@ -180,28 +213,44 @@ def ozet_metni(s: Sonuc) -> str:
 CIKTI_SAYISI = 7  # durum, çizelge, segmentler, toplamlar, değişimler, RTTM, metrikler
 
 
-def arayuz_cikti(ses_yolu, yontem, konusmaci_sayisi, esik, ref_rttm, hat=None) -> tuple:
+def arayuz_cikti(ses_yolu, yontem, konusmaci_sayisi, esik, ref_rttm, sunucu_yolu=None, hat=None) -> tuple:
     """Düğme işleyicisi: arayüzün yedi çıktısını döndürür, hiçbir zaman istisna fırlatmaz.
 
     Sıra: (durum Markdown, çizelge PNG, segment tablosu, konuşmacı toplamları, değişim noktaları,
     RTTM yolu, metrik Markdown). Hata olursa durumda hata_mesaji, diğerleri boş.
+    sunucu_yolu doluysa yüklenen dosya yerine o kullanılır (ses_yolu_sec). Referans verilmemişse
+    otomatik_referans ile data/sample/ RTTM'i aranır; kullanılan referans sonuçta belirtilir.
     """
     bos = (None, [], [], [], None, "")
+    try:
+        ses_yolu = ses_yolu_sec(ses_yolu, sunucu_yolu)
+    except (FileNotFoundError, ValueError) as hata:
+        return (hata_mesaji(str(sunucu_yolu).strip(), hata), *bos)
     if not ses_yolu:
-        return ("**Önce bir ses dosyası seçin** (WAV, MP3 veya FLAC).", *bos)
+        return ("**Önce bir ses dosyası seçin** (WAV, MP3 veya FLAC) veya sunucudaki ses yolunu yazın.", *bos)
     try:
         k, e = girdileri_denetle(konusmaci_sayisi, esik)
     except ValueError as hata:
         return (f"**Hata — ayarlar:** {hata}.", *bos)
+    ref_notu = ""
+    if ref_rttm:
+        ref_notu = f"Referans: {os.path.basename(ref_rttm)} (yüklenen)"
+    else:
+        ref_rttm = otomatik_referans(ses_yolu)
+        if ref_rttm:
+            ref_notu = f"Referans: {os.path.relpath(ref_rttm, KOK).replace(os.sep, '/')} (otomatik)"
     try:
-        s = analiz(ses_yolu, yontem or ana.VARSAYILAN_YONTEM, k, e, ref_rttm or None, hat=hat)
+        s = analiz(ses_yolu, yontem or ana.VARSAYILAN_YONTEM, k, e, ref_rttm, hat=hat)
     except Exception as hata:  # arayüz çökmesin; mesaj kullanıcıya
-        dosya = ses_yolu
-        if ref_rttm and "referans RTTM" in str(hata):
-            dosya = ref_rttm
+        dosya = ref_rttm if ref_rttm and "referans RTTM" in str(hata) else ses_yolu
         return (hata_mesaji(dosya, hata), *bos)
-    return (ozet_metni(s), s.png_yolu, segment_tablosu(s.segmentler), konusmaci_toplamlari(s.segmentler),
-            degisim_tablosu(s.segmentler), s.rttm_yolu, metrik_metni(s.metrikler))
+    metrik = metrik_metni(s.metrikler)
+    durum = ozet_metni(s)
+    if ref_notu:
+        metrik = f"{ref_notu}\n\n{metrik}"
+        durum = f"{durum}\n\n{ref_notu}"
+    return (durum, s.png_yolu, segment_tablosu(s.segmentler), konusmaci_toplamlari(s.segmentler),
+            degisim_tablosu(s.segmentler), s.rttm_yolu, metrik)
 
 
 def arayuz_olustur(hat=None):
@@ -214,6 +263,8 @@ def arayuz_olustur(hat=None):
         with gr.Row():
             with gr.Column():
                 ses = gr.File(label="Ses dosyası (WAV, MP3, FLAC)", type="filepath")
+                sunucu = gr.Textbox(label="Sunucudaki ses yolu (isteğe bağlı; doluysa yüklenen dosya yerine kullanılır)",
+                                    placeholder="/content/drive/MyDrive/.../kayit.wav")
                 yontem = gr.Radio(choices=list(YONTEMLER), value=ana.VARSAYILAN_YONTEM, label="Yöntem")
                 konusmaci = gr.Number(value=None, precision=0, label="Konuşmacı sayısı (boş = otomatik)")
                 esik = gr.Number(value=None, label=f"Eşik (boş = varsayılan: {esik_ipucu})")
@@ -232,6 +283,6 @@ def arayuz_olustur(hat=None):
                                   label="Konuşmacı başına toplam süre", interactive=False)
             degisim = gr.Dataframe(headers=["#", "Zaman (sn)", "dk:ss.ms"],
                                    label="Değişim noktaları", interactive=False)
-        dugme.click(lambda *g: arayuz_cikti(*g, hat=hat), inputs=[ses, yontem, konusmaci, esik, ref],
+        dugme.click(lambda *g: arayuz_cikti(*g, hat=hat), inputs=[ses, yontem, konusmaci, esik, ref, sunucu],
                     outputs=[durum, cizelge, segment, toplam, degisim, rttm, metrik], api_name="analiz")
     return demo
