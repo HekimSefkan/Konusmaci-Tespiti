@@ -39,7 +39,11 @@ def sahte_hat(monkeypatch):
 
     kayit = {}
     r = np.random.default_rng(0)
-    monkeypatch.setattr(ses_girdi, "ses_yukle", lambda yol: (np.zeros(16000 * 6, np.float32), 16000))
+    def ses_yukle(yol, maks_sure_sn=ses_girdi.MAKS_SURE_SN):
+        kayit["maks_sure_sn"] = maks_sure_sn
+        return np.zeros(16000 * 6, np.float32), 16000
+
+    monkeypatch.setattr(ses_girdi, "ses_yukle", ses_yukle)
     monkeypatch.setattr(vad, "konusma_bolgeleri", lambda ses, sr: [(0.0, 6.0)])
 
     def vektorler(ses, sr, pencereler, yontem):
@@ -93,3 +97,32 @@ def test_esik_ve_konusmaci_sayisi_onceligi(sahte_hat, tmp_path):
     assert sahte_hat["esik"] == 0.42
     ana.main([str(tmp_path / "x.wav"), "-o", str(tmp_path / "x.rttm"), "--konusmaci-sayisi", "2"])
     assert sahte_hat["esik"] is None  # sayı verilince eşik kullanılmaz
+
+
+def test_maks_sure_secenegi_iletilir(sahte_hat, tmp_path):
+    ana.main([str(tmp_path / "x.wav"), "-o", str(tmp_path / "x.rttm")])
+    assert sahte_hat["maks_sure_sn"] == 1800
+    ana.main([str(tmp_path / "x.wav"), "-o", str(tmp_path / "x.rttm"), "--maks-sure", "60"])
+    assert sahte_hat["maks_sure_sn"] == 60
+    ana.main([str(tmp_path / "x.wav"), "-o", str(tmp_path / "x.rttm"), "--maks-sure", "0"])
+    assert sahte_hat["maks_sure_sn"] is None  # 0 = sınırsız
+
+
+def test_maks_sure_cikis_1(tmp_path, capsys):
+    import io
+    import wave
+
+    tampon = io.BytesIO()
+    with wave.open(tampon, "wb") as w:  # 1 sn sentetik WAV (sessiz)
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(b"\x00\x00" * 16000)
+    yol = tmp_path / "uzun.wav"
+    yol.write_bytes(tampon.getvalue())
+    try:
+        assert ana.main([str(yol), "-o", str(tmp_path / "c.rttm"), "--maks-sure", "0.5"]) == 1
+        hata = capsys.readouterr().err
+        assert "uzun.wav" in hata and "süre 1.0 sn" in hata
+    finally:
+        yol.unlink()

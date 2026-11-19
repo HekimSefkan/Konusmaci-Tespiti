@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 
 # modül -> {fonksiyon: parametre adları}  (docs/arayuz.md ile aynı olmalı)
 SOZLESME = {
-    "src.ses_girdi": {"ses_yukle": ["yol"], "on_isle": ["veri", "sr_girdi"], "wav_denetle": ["kaynak", "ad"]},
+    "src.ses_girdi": {"ses_yukle": ["yol", "maks_sure_sn"], "on_isle": ["veri", "sr_girdi"], "wav_denetle": ["kaynak", "ad"]},
     "src.vad": {"konusma_bolgeleri": ["ses", "sr"]},
     "src.oznitelik": {
         "pencerele": ["bolgeler", "pencere_sn", "kaydirma_sn"],
@@ -64,6 +64,24 @@ SOZLESME = {
         "main": ["argv"],
     },
     "src.uyumluluk": {"speechbrain_hazirla": []},
+    "src.vad_olcum": {
+        "cercevelerden_bolgeler": ["kararlar", "cerceve_sn"],
+        "yumusat": ["bolgeler", "sure_sn", "min_konusma_ms", "min_sessizlik_ms", "kenar_payi_ms"],
+        "maske": ["bolgeler", "sure_sn", "cozunurluk_sn"],
+        "hata_olc": ["ref_maske", "hyp_maske", "cozunurluk_sn"],
+        "ozet_hesapla": ["satirlar"],
+        "webrtc_bolgeleri": ["ses", "sr", "agresiflik"],
+        "olc": ["zip_yol", "rttm_dizin", "kayitlar", "cikti_dizin", "limit", "dinleme_dizin", "dinleme_sayisi",
+                "parca_sn", "log"],
+        "snr_tahmini": ["ses", "sr", "bolgeler", "min_konusmasiz_sn"],
+        "dinleme_parcasi": ["bolgeler", "sure_sn", "uzunluk_sn"],
+        "dinleme_yaz": ["zip_yol", "satirlar", "dinleme_dizin", "cikti_dizin", "sayi", "parca_sn", "log"],
+        "main": ["argv"],
+    },
+    "src.gorsel": {
+        "zaman_cizelgesi": ["ref_rttm", "hyp_rttm", "png_yolu", "baslik"],
+        "sonuc_grafigi": ["csv_yolu", "png_yolu"],
+    },
     "src.varsayilanlar": {"yukle": [], "esik": ["yontem"], "mfcc_olcek": []},
     "src.degisim_modeli": {
         "ozellikler": ["pencereler", "X_ecapa", "X_mfcc", "bolgeler", "k"],

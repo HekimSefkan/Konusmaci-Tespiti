@@ -152,3 +152,29 @@ def test_ses_yukle_kesik_wav(tmp_path):
             ses_girdi.ses_yukle(str(yol))
     finally:
         yol.unlink()
+
+
+# --- maksimum süre (C-3; WAV başlığından, soundfile gerekmez) ---------------
+
+def test_maks_sure_varsayilani():
+    assert ses_girdi.MAKS_SURE_SN == 1800
+
+
+def test_maks_sure_asilinca_okumadan_hata(tmp_path):
+    yol = tmp_path / "uzun.wav"
+    yol.write_bytes(_wav_baytlari(1.0))  # 1 sn sentetik, sınır 0,5 sn
+    try:
+        with pytest.raises(ValueError, match=r"uzun\.wav: süre 1\.0 sn, en fazla 0\.5 sn"):
+            ses_girdi.ses_yukle(str(yol), maks_sure_sn=0.5)
+    finally:
+        yol.unlink()
+
+
+def test_maks_sure_sinirsiz_ve_altinda(tmp_path):
+    sf = pytest.importorskip("soundfile")  # okuma kısmı: Colab
+    yol = tmp_path / "kisa.wav"
+    sf.write(str(yol), np.zeros(8000, dtype=np.float32), 16000)  # 0,5 sn
+    assert ses_girdi.ses_yukle(str(yol), maks_sure_sn=1.0)[0].shape == (8000,)
+    assert ses_girdi.ses_yukle(str(yol), maks_sure_sn=None)[0].shape == (8000,)
+    with pytest.raises(ValueError, match="en fazla"):
+        ses_girdi.ses_yukle(str(yol), maks_sure_sn=0.25)
