@@ -8,6 +8,7 @@ ayarlanmış eşiği (src/varsayilanlar.json) kullanılır; MFCC'de genel ölçe
 import argparse
 import os
 import sys
+import time
 import warnings
 
 from . import cikti, kumeleme, oznitelik, ses_girdi, vad, varsayilanlar
@@ -37,19 +38,25 @@ def hat_segmentleri(bolgeler, pencereler, X, konusmaci_sayisi=None, esik=None):
     return cikti.segmentleri_birlestir(pencereler, etiketler)
 
 
-def calistir(girdi: str, cikti_yolu: str, yontem: str, konusmaci_sayisi: int | None,
-             esik: float | None = None, maks_sure_sn: float | None = ses_girdi.MAKS_SURE_SN) -> None:
-    """Hattı sırayla çalıştırır ve RTTM yazar.
+def hat_ayrintili(girdi: str, yontem: str = VARSAYILAN_YONTEM, konusmaci_sayisi: int | None = None,
+                  esik: float | None = None, maks_sure_sn: float | None = ses_girdi.MAKS_SURE_SN) -> dict:
+    """Hattı çalıştırır; segmentlerle birlikte ara bilgileri de döndürür (dosya yazmaz).
 
     esik None ve konuşmacı sayısı verilmemişse yöntemin ayarlanmış eşiği
     (varsayilanlar.esik) kullanılır. MFCC vektörleri kümelemeden önce genel ölçekle
     standartlaştırılır (varsayilanlar.mfcc_olcek; yoksa ham MFCC ve uyarı).
+    Dönüş: {"segmentler", "ses_sn", "ses", "sr", "bolgeler" (VAD), "pencereler", "X" (kümelenen
+    vektörler; kısa/sessiz kayıtta None), "esik" (kullanılan; konuşmacı sayısı verildiyse None),
+    "sureler": {"okuma", "vad", "oznitelik", "kumeleme"} (sn)}.
+    Hata: FileNotFoundError, ValueError (ses_girdi.ses_yukle ile aynı).
     """
     if esik is None and konusmaci_sayisi is None:
         esik = varsayilanlar.esik(yontem)
-    dosya_id = os.path.splitext(os.path.basename(girdi))[0]
+    t0 = time.perf_counter()
     ses, sr = ses_girdi.ses_yukle(girdi, maks_sure_sn)
+    t1 = time.perf_counter()
     bolgeler = vad.konusma_bolgeleri(ses, sr)
+    t2 = time.perf_counter()
     pencereler, X = [], None
     if bolgeler and kisa_konusma(bolgeler):
         warnings.warn(f"{girdi}: konuşma {MIN_KONUSMA_SN} sn'den kısa; tek konuşmacı varsayıldı")
@@ -61,7 +68,31 @@ def calistir(girdi: str, cikti_yolu: str, yontem: str, konusmaci_sayisi: int | N
             if olcek is None:
                 warnings.warn("MFCC ölçeği src/varsayilanlar.json'da yok; ham MFCC kümeleniyor")
             X = oznitelik.olcekle(X, olcek)
+    t3 = time.perf_counter()
     segmentler = hat_segmentleri(bolgeler, pencereler, X, konusmaci_sayisi, esik)
+    t4 = time.perf_counter()
+    sureler = {"okuma": t1 - t0, "vad": t2 - t1, "oznitelik": t3 - t2, "kumeleme": t4 - t3}
+    return {"segmentler": segmentler, "ses_sn": len(ses) / sr, "ses": ses, "sr": sr, "bolgeler": bolgeler,
+            "pencereler": pencereler, "X": X, "esik": None if konusmaci_sayisi is not None else esik,
+            "sureler": sureler}
+
+
+def segmentleri_hesapla(girdi: str, yontem: str = VARSAYILAN_YONTEM, konusmaci_sayisi: int | None = None,
+                        esik: float | None = None, maks_sure_sn: float | None = ses_girdi.MAKS_SURE_SN
+                        ) -> tuple[list[tuple[float, float, str]], float]:
+    """Hattı çalıştırır (hat_ayrintili); dosya yazmadan (segmentler, ses süresi sn) döndürür.
+
+    Hata: FileNotFoundError, ValueError (ses_girdi.ses_yukle ile aynı).
+    """
+    r = hat_ayrintili(girdi, yontem, konusmaci_sayisi, esik, maks_sure_sn)
+    return r["segmentler"], r["ses_sn"]
+
+
+def calistir(girdi: str, cikti_yolu: str, yontem: str, konusmaci_sayisi: int | None,
+             esik: float | None = None, maks_sure_sn: float | None = ses_girdi.MAKS_SURE_SN) -> None:
+    """Hattı sırayla çalıştırır (segmentleri_hesapla), RTTM yazar ve tabloyu basar."""
+    dosya_id = os.path.splitext(os.path.basename(girdi))[0]
+    segmentler, _ = segmentleri_hesapla(girdi, yontem, konusmaci_sayisi, esik, maks_sure_sn)
     cikti.rttm_yaz(segmentler, dosya_id, cikti_yolu)
     if not segmentler:  # sessiz dosya: boş RTTM
         return

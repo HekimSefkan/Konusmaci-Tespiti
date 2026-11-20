@@ -26,11 +26,26 @@ def _kaydet(sekil, png_yolu: str) -> str:
     return png_yolu
 
 
-def _renkler(n: int):
-    import matplotlib
+# matplotlib "tab10" ve "tab20" paletleri (aynı onaltılık değerler); web arayüzü de bunları kullanır.
+TAB10 = ("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f",
+         "#bcbd22", "#17becf")
+TAB20 = ("#1f77b4", "#aec7e8", "#ff7f0e", "#ffbb78", "#2ca02c", "#98df8a", "#d62728", "#ff9896",
+         "#9467bd", "#c5b0d5", "#8c564b", "#c49c94", "#e377c2", "#f7b6d2", "#7f7f7f", "#c7c7c7",
+         "#bcbd22", "#dbdb8d", "#17becf", "#9edae5")
 
-    harita = matplotlib.colormaps["tab10" if n <= 10 else "tab20"]
-    return [harita(i % harita.N) for i in range(n)]
+
+def _renkler(n: int) -> list[str]:
+    palet = TAB10 if n <= 10 else TAB20
+    return [palet[i % len(palet)] for i in range(n)]
+
+
+def renk_haritasi(etiketler) -> dict[str, str]:
+    """{etiket: onaltılık renk}: zaman çizelgesindeki şerit renkleriyle aynı (etiketler sıralanır).
+
+    Yalnızca standart kütüphane; web arayüzü tablolardaki konuşmacı renkleri için kullanır.
+    """
+    sirali = sorted(set(etiketler))
+    return dict(zip(sirali, _renkler(len(sirali))))
 
 
 def zaman_cizelgesi(ref_rttm: str, hyp_rttm: str, png_yolu: str, baslik: str | None = None) -> str:
@@ -41,16 +56,31 @@ def zaman_cizelgesi(ref_rttm: str, hyp_rttm: str, png_yolu: str, baslik: str | N
     Konuşma olmayan şeritte "konuşma yok" yazar.
     Dönüş: png_yolu. Hata: FileNotFoundError, ValueError (RTTM bozuk).
     """
-    seritler = [("Referans", cikti.rttm_oku(ref_rttm)), ("Sistem", cikti.rttm_oku(hyp_rttm))]
+    if baslik is None:
+        baslik = os.path.splitext(os.path.basename(ref_rttm))[0]
+    return zaman_seritleri({"Referans": cikti.rttm_oku(ref_rttm), "Sistem": cikti.rttm_oku(hyp_rttm)},
+                           png_yolu, baslik)
+
+
+def zaman_seritleri(seritler: dict, png_yolu: str, baslik: str | None = None) -> str:
+    """Bellekteki segment listelerini ({şerit adı: [(bas, bit, etiket)]}) alt alta şeritlerde çizer.
+
+    zaman_cizelgesi ile aynı çizim; şerit sayısı 1 veya daha fazla olabilir (ör. yalnızca
+    "Sistem" ya da "Referans" + "Sistem"). Dönüş: png_yolu. Hata: ValueError (şerit yok).
+    """
+    seritler = list(seritler.items())
+    if not seritler:
+        raise ValueError("en az bir şerit gerekli")
     bitis = max((b for _, segler in seritler for _, b, _ in segler), default=1.0)
     satir_sayilari = [max(1, len({e for *_, e in segler})) for _, segler in seritler]
-    sekil, eksenler = _yeni_sekil(12, 1.2 + 0.32 * sum(satir_sayilari) + 0.6, nrows=2, ncols=1, sharex=True,
-                                  gridspec_kw={"height_ratios": satir_sayilari})
+    sekil, eksenler = _yeni_sekil(12, 1.2 + 0.32 * sum(satir_sayilari) + 0.6, nrows=len(seritler), ncols=1,
+                                  sharex=True, squeeze=False, gridspec_kw={"height_ratios": satir_sayilari})
+    eksenler = list(eksenler[:, 0])
     for ax, (ad, segler) in zip(eksenler, seritler):
-        etiketler = sorted({e for *_, e in segler})
-        renk = _renkler(len(etiketler))
+        renk = renk_haritasi(e for *_, e in segler)
+        etiketler = list(renk)
         for i, e in enumerate(etiketler):
-            ax.broken_barh([(a, b - a) for a, b, l in segler if l == e], (i - 0.4, 0.8), color=renk[i])
+            ax.broken_barh([(a, b - a) for a, b, l in segler if l == e], (i - 0.4, 0.8), color=renk[e])
         ax.set_yticks(range(len(etiketler)), etiketler)
         ax.set_ylim(max(len(etiketler), 1) - 0.5, -0.5)  # ilk konuşmacı üstte
         ax.set_ylabel(f"{ad}\n({len(etiketler)} konuşmacı)")
@@ -59,9 +89,8 @@ def zaman_cizelgesi(ref_rttm: str, hyp_rttm: str, png_yolu: str, baslik: str | N
             ax.text(0.5, 0.5, "konuşma yok", transform=ax.transAxes, ha="center", va="center")
     eksenler[-1].set_xlim(0, bitis)
     eksenler[-1].set_xlabel("zaman (sn)")
-    if baslik is None:
-        baslik = os.path.splitext(os.path.basename(ref_rttm))[0]
-    eksenler[0].set_title(baslik)
+    if baslik:
+        eksenler[0].set_title(baslik)
     return _kaydet(sekil, png_yolu)
 
 

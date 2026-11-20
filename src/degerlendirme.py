@@ -10,11 +10,18 @@ from . import cikti
 
 
 def _degisim_eslestir(ref: list[float], hyp: list[float], tolerans_sn: float) -> tuple[int, int, int]:
-    """Değişim noktalarını eşleştirir ve (tp, fp, fn) döndürür.
+    """Değişim noktalarını eşleştirir ve (tp, fp, fn) döndürür (eşleşme kuralı: _eslesen_ciftler)."""
+    tp = len(_eslesen_ciftler(ref, hyp, tolerans_sn))
+    return tp, len(hyp) - tp, len(ref) - tp
+
+
+def _eslesen_ciftler(ref: list[float], hyp: list[float], tolerans_sn: float) -> list[tuple[int, int]]:
+    """Eşleşen (referans indeksi, tahmin indeksi) çiftleri.
 
     Her referans noktası en fazla bir tahminle, her tahmin en fazla bir
     referansla eşleşir. |r - h| <= tolerans_sn olan çiftler mesafeye göre
     artan sırada (eşitlikte önce erken referans) açgözlü biçimde eşleşir.
+    Web arayüzü eşleşen/kaçırılan/fazladan noktaları göstermek için de kullanır.
     """
     hyp_sirali = sorted(enumerate(hyp), key=lambda x: x[1])
     zamanlar = [h for _, h in hyp_sirali]
@@ -27,14 +34,14 @@ def _degisim_eslestir(ref: list[float], hyp: list[float], tolerans_sn: float) ->
             if d <= pay:
                 ciftler.append((d, i, j))
     ciftler.sort()
-    ref_kullanildi, hyp_kullanildi = set(), set()
+    ref_kullanildi, hyp_kullanildi, eslesen = set(), set(), []
     for _, i, j in ciftler:
         if i in ref_kullanildi or j in hyp_kullanildi:
             continue
         ref_kullanildi.add(i)
         hyp_kullanildi.add(j)
-    tp = len(ref_kullanildi)
-    return tp, len(hyp) - tp, len(ref) - tp
+        eslesen.append((i, j))
+    return sorted(eslesen)
 
 
 def _annotation(segmentler):
