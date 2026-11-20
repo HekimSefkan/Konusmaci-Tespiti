@@ -49,7 +49,15 @@ Yerelde http://127.0.0.1:7860 adresinde açılır (`--port` ile değiştirilebil
 ```bash
 python app.py --share
 ```
-Gradio'nun genel geçici bağlantısını da üretir (Colab için). Colab'da hazır defter: [notebooks/arayuz_demo.ipynb](notebooks/arayuz_demo.ipynb) (Drive'ı bağlar, repoyu günceller, bağımlılıkları Colab'ın torch'u ile kurar, `KT_MODEL_ONBELLEK`'i Drive'daki ECAPA önbelleğine ayarlar ve arayüzü başlatır). Modeller ilk analizde bir kez yüklenir; GPU varsa ECAPA onu kullanır. Arayüz mantığı `src/arayuz.py`'dedir.
+Gradio'nun genel geçici bağlantısını da üretir (Colab için). Colab'da hazır defter: [notebooks/arayuz_demo.ipynb](notebooks/arayuz_demo.ipynb) (Drive'ı bağlar, repoyu günceller, bağımlılıkları Colab'ın torch'u ile kurar, ortam değişkenlerini ayarlar, şifreyi sorar ve arayüzü başlatır). Modeller ilk analizde bir kez yüklenir; GPU varsa ECAPA onu kullanır. Arayüz mantığı `src/arayuz.py`'dedir.
+
+| Ortam değişkeni | Etkisi |
+|---|---|
+| `KT_KULLANICI`, `KT_SIFRE` | İkisi de varsa arayüz şifreyle korunur. `--share` şifresiz kullanılırsa uyarı yazılır. |
+| `KT_IZINLI_DIZIN` | "Sunucudaki ses yolu" yalnızca bu klasörün altındaki dosyaları açar (`../` ve sembolik bağlantıyla kaçış engellenir); yoksa alan gizlenir. |
+| `KT_GECMIS_DIZIN` | Her analiz buraya kaydedilir (`sonuc.json`, RTTM, 50 MB altıysa ses kopyası); "Geçmiş" sekmesinden yeniden hesaplamadan açılır veya silinir. Yoksa geçmiş kapalı. |
+
+Sayfanın üstündeki **Basit / Gelişmiş** anahtarı görünümü değiştirir. *Basit*: "Konuşmacı 1, 2, …" adları, özet cümlesi, özet kartları, zaman çizelgesi, konuşmacı süreleri. *Gelişmiş*: `spkNN` etiketleri, referans ve VAD şeritleri, değişim noktaları, referans varsa DER/JER/F1 ve bileşenleri, hata çizelgesi ve değişim noktası eşleşmeleri, aşama süreleri, konuşmacı benzerlik ısı haritası, ham RTTM. Zaman çizelgesi etkileşimlidir (plotly; üzerine gelince ayrıntı, yakınlaştırma, değişim noktaları kesikli çizgi). Referans varsa sistem konuşmacıları referansa Macar algoritmasıyla eşlenir ve aynı renkte gösterilir. Segment tablosunda bir satır seçildiğinde o segmentin sesi çalınır.
 
 ## Kurulum
 

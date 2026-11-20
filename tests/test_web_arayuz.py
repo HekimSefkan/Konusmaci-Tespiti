@@ -131,27 +131,30 @@ def test_sessiz_sonuc(tmp_path):
     assert "konuşma bulunamadı" in durum and seg == [] and os.path.isfile(png)
 
 
-def test_ses_yolu_sec(tmp_path):
+def test_ses_yolu_sec(tmp_path, monkeypatch):
+    monkeypatch.setenv("KT_IZINLI_DIZIN", str(tmp_path))
     yuklenen = _dosya(tmp_path, "yuklenen.wav")
     sunucu = _dosya(tmp_path, "sunucu.wav")
     assert arayuz.ses_yolu_sec(yuklenen, None) == yuklenen
     assert arayuz.ses_yolu_sec(yuklenen, "  ") == yuklenen
     assert arayuz.ses_yolu_sec(None, None) is None
-    assert arayuz.ses_yolu_sec(yuklenen, f' "{sunucu}" ') == sunucu  # tırnak ve boşluk atılır
+    assert arayuz.ses_yolu_sec(yuklenen, f' "{sunucu}" ') == os.path.realpath(sunucu)  # tırnak ve boşluk atılır
     with pytest.raises(FileNotFoundError, match="olmayan.wav"):
         arayuz.ses_yolu_sec(yuklenen, str(tmp_path / "olmayan.wav"))
     with pytest.raises(FileNotFoundError, match="klasör"):
         arayuz.ses_yolu_sec(None, str(tmp_path))
 
 
-def test_sunucu_yolu_yuklenenin_yerine_gecer(tmp_path):
+def test_sunucu_yolu_yuklenenin_yerine_gecer(tmp_path, monkeypatch):
+    monkeypatch.setenv("KT_IZINLI_DIZIN", str(tmp_path))
     pytest.importorskip("matplotlib")
     durum, *_ = arayuz.arayuz_cikti(_dosya(tmp_path, "yuklenen.wav"), "ecapa", None, None, None,
                                     sunucu_yolu=_dosya(tmp_path, "drive_kaydi.wav"), hat=sahte_hat)
     assert sahte_hat.cagri[0] == "drive_kaydi.wav" and "drive_kaydi" in durum
 
 
-def test_sunucu_yolu_yok_mesaji(tmp_path):
+def test_sunucu_yolu_yok_mesaji(tmp_path, monkeypatch):
+    monkeypatch.setenv("KT_IZINLI_DIZIN", str(tmp_path))
     durum, png, *_ = arayuz.arayuz_cikti(None, "ecapa", None, None, None,
                                          sunucu_yolu=str(tmp_path / "yok.wav"), hat=sahte_hat)
     assert "yok.wav" in durum and "bulunamadı" in durum and png is None

@@ -40,6 +40,9 @@ matplotlib==3.10.7
 # 6.17.3: huggingface_hub==0.36.0 ile uyumlu en yeni gradio (6.18+ huggingface-hub>=1.2 ister;
 # speechbrain 1.0.3 icin hub 1.x'e gecilemez). Python >=3.10 (3.13'te audioop-lts ile).
 gradio==6.17.3
+# 6.9.0: plotly.js 3.7.0'i hedefler; gradio 6.17.3'un arayuzu plotly.js 3.8.2 ile gelir (ayni ana surum).
+# plotly 7.x plotly.js 4'u hedefler, bu yuzden secilmedi.
+plotly==6.9.0
 
 # --- Test ---
 pytest==9.1.1
