@@ -14,7 +14,7 @@ from datetime import datetime
 ORTAM = "KT_GECMIS_DIZIN"
 SONUC = "sonuc.json"
 MAKS_SES_BAYT = 50 * 1024 * 1024
-YEREL_ANAHTARLAR = ("rttm_yolu", "ses_yolu", "gecmis_adi")  # sonuc.json'a yazılmaz (yerel yollar)
+YEREL_ANAHTARLAR = ("rttm_yolu", "ses_yolu", "gecmis_adi", "oynat_yolu")  # sonuc.json'a yazılmaz (yerel yollar)
 
 
 def gecmis_dizini() -> str | None:
@@ -102,6 +102,25 @@ def ac(kok: str, ad: str) -> dict:
         veri[anahtar] = yol if yol and os.path.isfile(yol) else None
     veri["gecmis_adi"] = ad
     return veri
+
+
+def guncelle(kok: str, ad: str, veri: dict) -> None:
+    """Kaydın sonuc.json'unu veri ile günceller (ör. konuşmacı adları); dosya adları ve kayıt tarihi korunur.
+
+    Yazma atomiktir (geçici dosya + os.replace). Hata: ValueError (kayıt yok), OSError.
+    """
+    klasor = _klasor(kok, ad)
+    yol = os.path.join(klasor, SONUC)
+    with open(yol, encoding="utf-8") as f:
+        eski = json.load(f)
+    yeni = {k: v for k, v in veri.items() if k not in YEREL_ANAHTARLAR}
+    for k in ("kayit_tarihi", "rttm", "ses", "ses_notu"):
+        if k in eski:
+            yeni[k] = eski[k]
+    gecici = yol + ".tmp"
+    with open(gecici, "w", encoding="utf-8") as f:
+        json.dump(yeni, f, ensure_ascii=False, indent=1)
+    os.replace(gecici, yol)
 
 
 def sil(kok: str, ad: str) -> None:

@@ -336,14 +336,18 @@ Başlatma: `python app.py [--share] [--host 127.0.0.1] [--port 7860]` (`--share`
 
 | Değişken | Etkisi |
 |---|---|
-| `KT_KULLANICI`, `KT_SIFRE` | İkisi de doluysa `launch(auth=(kullanıcı, şifre))` ile şifre koruması (`app.kimlik`). `--share` şifresiz kullanılırsa stderr'e uyarı yazılır. |
+| `KT_KULLANICI_DB` | Uygulama içi hesapların JSON dosyası (3.18). Yoksa `~/.konusmaci-tespiti/kullanicilar.json`. |
+| `KT_KAYIT_ACIK` | `0` ise "Kayıt ol" sekmesi gizlenir ve yeni kayıt reddedilir (yalnızca giriş). Varsayılan açık. `--share` kayıt açıkken kullanılırsa stderr'e "bağlantıyı yalnızca güvendiğin kişilerle paylaş" uyarısı yazılır. |
 | `KT_IZINLI_DIZIN` | "Sunucudaki ses yolu" yalnızca bu klasörün altındaki dosyaları açar; tanımlı değilse alan gizlenir ve sunucu yolu reddedilir. |
-| `KT_GECMIS_DIZIN` | Analiz geçmişinin klasörü (3.17); tanımlı değilse geçmiş kapalı ve "Geçmiş" sekmesi gizli. |
+| `KT_GECMIS_DIZIN` | Analiz geçmişinin kökü; her kullanıcının kayıtları `KT_GECMIS_DIZIN/<kullanıcı kimliği>/` altında (3.17). Tanımlı değilse geçmiş kapalı. |
 
-İzinli ve geçmiş klasörleri `launch(allowed_paths=izinli_yollar())` ile Gradio'ya verilir (ses oynatıcı bu klasörlerdeki dosyaları sunabilsin diye). Alanların görünürlüğü arayüz kurulurken ortam değişkenlerinden okunur.
+- **Hesap ve oturum:** Açılışta yalnızca "Giriş yap" ve "Kayıt ol" sekmeleri olan ekran; giriş/kayıt başarılı olunca ana uygulama açılır, "Çıkış" geri döndürür. Oturum anahtarı sunucuda üretilir (bellekte, süre sınırlı; 3.18) ve tarayıcıda `gr.BrowserState` ile tutulur; sayfa yenilenince oturum geçerliyse uygulama doğrudan açılır. **Her işleyici** (analiz, görünüm geçişi, segment seçme/gezinme, adlandırma, indirme, geçmiş) önce oturumu sunucuda doğrular (`Uygulama`); geçersizse işlem yapmadan giriş ekranına döner. Eski ortak şifre (`launch(auth=...)`, `KT_KULLANICI`/`KT_SIFRE`) kaldırıldı.
+- **API kapalı:** tüm olaylar `api_visibility="private"`; `launch(footer_links=["gradio", "settings"], mcp_server=False)` ile API bağlantısı gösterilmez. Gradio istemci kitaplıkları uç noktaları çağıramaz (testle doğrulanır).
+- **Dosya sunma:** `launch(allowed_paths=...)` kullanılmaz (izinli/geçmiş klasörleri dışarıya açılmasın diye). Ses oynatıcının dosyası `oynatilabilir_kopya` ile geçici klasöre kopyalanır; indirme dosyaları geçici klasörde üretilir; hepsi yalnızca oturumu doğrulanmış işleyicilerden döner.
+- **Görünürlük:** gradio 6.17.3'te iç içe sütunlarda `visible` güncellemeleri güvenilir olmadığından (başlangıçta `visible=False` olan bileşene yeniden `False` gönderilince sonraki `True` uygulanmıyor; `"hidden"` ilk çizimde ve üst sütun yeniden gösterilince kayboluyor) gösterme/gizleme `kt-gizli` CSS sınıfıyla (`elem_classes`) yapılır. Tüm bileşenler ve sekmeler baştan çizilir; sekme görünürlüğü hiç değiştirilmez.
 
 ```python
-# Temel işlem ve eski düz çıktılar (API ve testler)
+# Temel işlem ve eski düz çıktılar (testler ve geriye uyumluluk)
 girdileri_denetle(konusmaci_sayisi, esik) -> tuple[int | None, float | None]
 analiz(ses_yolu: str, yontem: str = "ecapa", konusmaci_sayisi: int | None = None, esik: float | None = None,
        ref_rttm: str | None = None, cikti_dizin: str | None = None, hat=None, cizelge: bool = True) -> Sonuc
@@ -353,7 +357,6 @@ degisim_tablosu(segmentler) -> list[list]          # [sıra, zaman sn, dk:ss.mmm
 metrik_metni(metrikler: dict | None) -> str        # Markdown: DER, JER, değişim F1 ve bileşenleri
 hata_mesaji(dosya: str | None, hata: BaseException) -> str
 izinli_dizin() -> str | None                       # KT_IZINLI_DIZIN'in gerçek yolu
-izinli_yollar() -> list[str]                       # launch(allowed_paths=...)
 ses_yolu_sec(yuklenen: str | None, sunucu_yolu: str | None) -> str | None
 otomatik_referans(ses_yolu: str) -> str | None
 arayuz_cikti(ses_yolu, yontem, konusmaci_sayisi, esik, ref_rttm, sunucu_yolu=None, hat=None) -> tuple   # 7 çıktı
@@ -370,37 +373,50 @@ dogruluk_metni(s: Sonuc, ref_notu: str = "") -> str             # referans yoksa
 bilesen_html(metrikler: dict | None) -> str        # DER bileşenleri (sn, %), DER, JER, F1
 eslesme_html(referans, segmentler, tolerans_sn: float = 0.5) -> str   # doğru eşleşen / kaçırılan / fazladan
 asama_html(sureler: dict | None, islem_sn: float) -> str
-# Yeni arayüz: veri sözlüğü, görünüm, ses dinleme, geçmiş
-konusmaci_adlari(segmentler, basit: bool) -> dict[str, str]
+# Veri sözlüğü, görünüm, adlandırma, indirme, ses dinleme, geçmiş
+konusmaci_adlari(segmentler, basit: bool, ozel: dict | None = None) -> dict[str, str]
 konusmaci_benzerligi(pencereler, X, segmentler) -> dict | None
 veri_olustur(s: Sonuc, ref_notu: str = "", ayarlar: dict | None = None, dosya_adi: str | None = None) -> dict
 ozet_cumlesi(segmentler, adlar: dict | None = None) -> str
-segment_tablosu_df(segmentler, renk: dict, adlar: dict) -> pandas.io.formats.style.Styler
+segment_tablosu_df(segmentler, renk: dict, adlar: dict) -> pandas Styler   # ▶, #, Konuşmacı (renkli), ...
+sure_tablosu_df(segmentler, renk: dict, adlar: dict) -> pandas Styler      # Kod (renkli), Ad (düzenlenebilir), ...
+adlari_ayikla(veri: dict, tablo) -> dict[str, str]                         # {etiket: özel ad}
+segment_bilgisi(veri: dict, satir: int, mod: str = "Basit") -> str
+cizelge_olustur(veri: dict, mod: str = "Basit", vurgu=None) -> plotly Figure
 gorunum_verisi(veri: dict, mod: str = "Basit") -> dict
+indirme_dosyalari(veri: dict, klasor: str | None = None) -> tuple[str, str, str]   # RTTM, CSV, JSON
+oynatilabilir_kopya(yol: str | None) -> str | None
 segment_sesi(ses, sr: int, bas: float, bit: float) -> tuple[int, np.ndarray]
 segment_secimi(veri, ses_bilgi, satir, yukle=None) -> tuple   # (oynatıcı değeri | None, ses_bilgi, not)
 analiz_et(ses_yolu, yontem, konusmaci_sayisi, esik, ref_rttm, sunucu_yolu=None, hat=None, gecmis_kok=None) -> tuple
 gecmis_tablosu(kok: str | None) -> list[list]      # [tarih, dosya, konuşmacı, süre, kayıt adı]
 gecmis_acilis(kok: str | None, ad: str | None) -> tuple   # (veri | None, ses_bilgi | None, uyarı HTML)
 gecmis_silme(kok: str | None, ad: str | None) -> tuple    # (tablo, None, not)
+# Oturum korumalı işlemler ve arayüz
+class OturumGecersiz(Exception)
+class Uygulama(depo: hesap.HesapDeposu, hat=None, gecmis_kok: str | None = None)
+    # kullanici, gecmis_koku, giris, kayit, cikis, analiz, gorunum, segment, adlandir,
+    # gecmis_listesi, gecmis_ac, gecmis_sil — kullanici/giris/kayit dışındakiler önce oturumu doğrular
+varsayilan_uygulama(hat=None) -> Uygulama          # KT_KULLANICI_DB, KT_GECMIS_DIZIN
 tema() -> gradio.themes.ThemeClass
-arayuz_olustur(hat=None) -> gradio.Blocks
+arayuz_olustur(hat=None, uygulama: Uygulama | None = None) -> gradio.Blocks
 ```
 - **gradio** yalnızca `tema` ve `arayuz_olustur` içinde import edilir; diğer fonksiyonlar gradio ve model olmadan çalışır. `hat`: `(girdi, yontem, konusmaci_sayisi, esik)` → `(segmentler, ses_sn)` veya `main.hat_ayrintili` biçiminde sözlük; verilmezse `main.hat_ayrintili` (testlerde sahte hat verilir). Sözlük dönerse `Sonuc.ayrinti`'ye konur.
 - `girdileri_denetle`: boş değer (`None`, `""`, NaN) veya **0 = otomatik** (`None`): konuşmacı sayısı eşikle bulunur, eşik yöntemin `varsayilanlar.json` eşiğidir. Arayüzdeki alanların varsayılanı 0'dır. Hata: `ValueError` (konuşmacı sayısı negatif veya tam sayı değil; eşik negatif).
 - `analiz`: referans RTTM hat çalışmadan önce okunur (bozuksa `ValueError`, mesajda referans dosyasının adı). Hat süresi ölçülür (`islem_sn`; ilk istekte model yükleme dahildir). `<dosya_id>.rttm` ve `cizelge=True` ise `<dosya_id>.png` (`gorsel.zaman_seritleri`) `cikti_dizin`'e (verilmezse geçici klasör) yazılır. Referans varsa `degerlendirme._segmentleri_degerlendir(ref, hyp, collar=0.5, tolerans_sn=0.5)`.
 - `Sonuc` alanları: `dosya_id, segmentler, ses_sn, islem_sn, rttm_yolu, png_yolu, referans, metrikler, ayrinti` (referans yoksa `referans`/`metrikler` `None`; `ayrinti` hat sözlük döndürdüyse dolu).
-- `ses_yolu_sec`: "Sunucudaki ses yolu" doluysa yüklenen dosya yerine o kullanılır (boşluk/tırnak atılır). Yol `KT_IZINLI_DIZIN`'e göre çözülür (göreli yollar izinli klasöre göre) ve `os.path.realpath` ile **gerçek yolu** alınır; `../` veya sembolik bağlantıyla klasör dışına çıkan yol reddedilir. Mesajlar izinli klasör dışındaki yolları göstermez; içerideki yollar klasöre göre gösterilir. Hata: `ValueError` (değişken tanımlı değil, klasör dışında, okunamıyor), `FileNotFoundError` (yok veya klasör).
-- `otomatik_referans`: referans RTTM verilmemişse, ses dosyasının uzantısız adıyla aynı adlı RTTM önce `data/sample/`, sonra `data/sample/edge/` içinde aranır; bulunursa referans olarak kullanılır ve sonuçta `Referans: data/sample/... (otomatik)` yazılır (yüklenen referansta `(yüklenen)`).
-- `arayuz_cikti` / `gorunum_cikti` / `analiz_et`: **istisna fırlatmaz**; ortak işlem `_isle`. Dosya seçilmemişse veya ayar hatalıysa açıklama, girdi hatası ve beklenmeyen hata `hata_mesaji` ile gösterilir.
-- `hata_mesaji`: dosya adını içeren Türkçe mesaj: bulunamadı, desteklenmeyen biçim (WAV/MP3/FLAC), çok uzun (`ses_girdi.MAKS_SURE_SN` = 1800 sn), bozuk/okunamıyor, diğer girdi hatası veya beklenmeyen hata (istisna türü ile); altında ayrıntı.
-- **Veri sözlüğü** (`veri_olustur`; JSON'a yazılabilir, geçmişe de bu kaydedilir): `dosya_id, dosya_adi, ayarlar {yontem, konusmaci_sayisi, esik}, ses_sn, islem_sn, segmentler, referans, ref_notu, metrikler, vad, sureler, kullanilan_esik, benzerlik {etiketler, matris}, rttm_metni` ve yerel `rttm_yolu, ses_yolu` (+ geçmişe kaydedildiyse `gecmis_adi`). `konusmaci_benzerligi`: her pencere orta noktasını içeren sistem segmentinin etiketine atanır, konuşmacı başına ortalama gömme alınır, kosinüs benzerliği hesaplanır (2'den az konuşmacıda `None`).
-- **Basit / Gelişmiş görünüm** (`gorunum_verisi`; sayfanın üstündeki anahtar, varsayılan Basit; değiştirmek yeniden hesaplamaz): *Basit*: konuşmacılar toplam süreye göre "Konuşmacı 1, 2, …", özet cümlesi (`ozet_cumlesi`: kaç kişi, en çok konuşan ve payı, kaç değişim), özet kartları, tek (sistem) şeritli zaman çizelgesi, konuşmacı süreleri ve segmentler. *Gelişmiş*: `spkNN` etiketleri; çizelgede referans ve VAD şeritleri; değişim noktaları; referans varsa Doğruluk sekmesi (DER/JER/F1 ve DER bileşenleri sn ve %, hata çizelgesi, değişim noktası eşleşme tablosu ±0,5 sn); Hat ayrıntıları (aşama süreleri: okuma, VAD, öznitelik, kümeleme; konuşmacı gömmeleri benzerlik ısı haritası); ham RTTM metni.
-- **Renkler:** referans varsa sistem konuşmacıları referansa Macar algoritmasıyla eşlenir (`gorsel_etkilesimli.konusmaci_esle`); aynı kişi iki şeritte aynı renkte, eşleşmeyen sistem konuşmacıları gri. Çizelge, segment tablosu (`segment_tablosu_df`, Konuşmacı hücresi renkli), süre ve değişim tabloları aynı `renk` sözlüğünü kullanır.
-- **Ses dinleme:** sonuç ekranında ses oynatıcı (yüklenen dosya, sunucu yolu veya geçmişteki kopya). Segment tablosunda satır seçilince `segment_secimi` o segmenti bellekteki sesten `segment_sesi` ile (numpy, 16 bit) keser ve küçük oynatıcıda çalar. Ses dizisi analizden gelir (`hat_ayrintili`); geçmişten açılan kayıtta ilk seçimde kopyadan bir kez okunur (`ses_girdi.ses_yukle`, süre sınırı yok).
-- **Geçmiş** (`KT_GECMIS_DIZIN` tanımlıysa): her başarılı analiz `gecmis.kaydet` ile kaydedilir (kayıt hatası analizi bozmaz, sarı kutuda gösterilir). "Geçmiş" sekmesi tarih, dosya, konuşmacı sayısı ve süreyi listeler; seçilen kayıt **Aç** ile yeniden hesaplamadan tüm sonuç ekranıyla açılır, **Sil** ile kalıcı olarak silinir.
-- **Görünüm ayrıntıları:** büyük ses yükleme alanı, "Sunucudaki ses yolu" ve "Analiz et"; yöntem, konuşmacı sayısı, eşik ve referans RTTM kapalı "Gelişmiş ayarlar" bölümünde. Analiz sürerken ilerleme göstergesi; ilk analizde model yükleme notu; hatalar kırmızı uyarı kutusunda. Tema ve CSS gradio 6'da `launch(theme=tema(), css=CSS)` ile verilir.
-- **Modeller:** ECAPA ve Silero VAD ilk analizde bir kez yüklenir ve süreç boyunca tutulur (`oznitelik.ecapa_modeli`, `vad._silero_modeli`); GPU varsa ECAPA onu kullanır. İstekler kuyrukla sırayla işlenir (`queue()`).
+- `ses_yolu_sec`: "Sunucudaki ses yolu" doluysa yüklenen dosya yerine o kullanılır (boşluk/tırnak atılır). Yol `KT_IZINLI_DIZIN`'e göre çözülür (göreli yollar izinli klasöre göre) ve `os.path.realpath` ile **gerçek yolu** alınır; `../` veya sembolik bağlantıyla klasör dışına çıkan yol reddedilir. Mesajlar izinli klasör dışındaki yolları göstermez. Hata: `ValueError` (değişken tanımlı değil, klasör dışında, okunamıyor), `FileNotFoundError` (yok veya klasör).
+- `otomatik_referans`: referans RTTM verilmemişse ses dosyasının uzantısız adıyla aynı adlı RTTM önce `data/sample/`, sonra `data/sample/edge/` içinde aranır; bulunursa referans alınır ve sonuçta `Referans: data/sample/... (otomatik)` yazılır (yüklenen referansta `(yüklenen)`).
+- `arayuz_cikti` / `gorunum_cikti` / `analiz_et`: **istisna fırlatmaz**; ortak işlem `_isle`. `hata_mesaji`: dosya adını içeren Türkçe mesaj (bulunamadı, desteklenmeyen biçim, çok uzun > 1800 sn, bozuk/okunamıyor, beklenmeyen hata).
+- **Veri sözlüğü** (`veri_olustur`; JSON'a yazılabilir, geçmişe ve JSON indirmesine bu yazılır): `dosya_id, dosya_adi, ayarlar {yontem, konusmaci_sayisi, esik}, ses_sn, islem_sn, segmentler, referans, ref_notu, metrikler, vad, sureler, kullanilan_esik, benzerlik {etiketler, matris}, ozel_adlar, rttm_metni` ve yerel `rttm_yolu, ses_yolu, oynat_yolu, gecmis_adi` (yerel yollar dosyalara yazılmaz). `konusmaci_benzerligi`: her pencere orta noktasını içeren sistem segmentine atanır, konuşmacı başına ortalama gömmeden kosinüs benzerliği (2'den az konuşmacıda `None`).
+- **Düzen:** Üst çubukta solda ad ve tek satırlık tanım, sağda Basit/Gelişmiş anahtarı, kullanıcı adı ve "Çıkış". Sekmeler: Analiz, Geçmiş, Hakkında (sistem adımları diyagramı, DER/JER/değişim F1 açıklaması, doğrulama sonucu, Grup_68). Analiz: büyük ses yükleme alanı, "Sunucudaki ses yolu", "Analiz et"; yöntem, konuşmacı sayısı, eşik ve referans RTTM kapalı "Gelişmiş ayarlar"da. Sonuçta vurgulu özet cümlesi kartı, özet kartları (konuşmacı, ses süresi, değişim noktası, işlem süresi), ses oynatıcı, zaman çizelgesi, sekmeler ve RTTM/CSV/JSON indirme düğmeleri. Analiz sürerken ilerleme göstergesi ve "İlk analizde modeller yüklenir, 1–2 dk sürebilir" notu; hatalar kırmızı kutuda.
+- **Basit / Gelişmiş** (`gorunum_verisi`; geçiş yeniden analiz yapmadan son sonucu kullanır): her iki modda tüm içerikler doldurulur; Gelişmiş sekmeleri (Değişim noktaları, Doğruluk, Hat ayrıntıları, RTTM) ayrı bir sütunda durur ve yalnızca bu sütunun sınıfı değişir. *Basit*: "Konuşmacı 1, 2, …" adları (toplam süreye göre), özet, tek (sistem) şeritli çizelge (konuşmacı başına 44 px), Konuşmacı süreleri ve Segmentler. *Gelişmiş*: `spkNN` etiketleri (özel ad varsa "ad (spkNN)"); çizelgede Referans / Sistem / VAD grupları başlıklarla ayrılmış ve lejantlı; Doğruluk sekmesinde DER/JER/F1, DER bileşenleri (sn ve %), hata çizelgesi ve değişim noktası eşleşmeleri (±0,5 sn); Hat ayrıntılarında aşama süreleri ve benzerlik ısı haritası; ham RTTM. Referans yoksa Doğruluk sekmesi bunu açıklar.
+- **Renkler:** referans varsa sistem konuşmacıları referansa Macar algoritmasıyla eşlenir; aynı kişi iki şeritte aynı renkte, eşleşmeyenler gri. Çizelge ve tüm tablolar aynı `renk` sözlüğünü kullanır; çizelge satırları adların sırasıyla (toplam süre) dizilir.
+- **Segmentler:** her satırda ▶ hücresi; satır seçilince (`segment_secimi`) segment bellekteki sesten numpy ile kesilip küçük oynatıcıda çalınır, çizelgede sarı bantla vurgulanır (`cizelge_olustur(vurgu=...)`) ve bilgisi (`segment_bilgisi`: konuşmacı, başlangıç–bitiş, süre, sıra) oynatıcının yanında gösterilir; "◀ Önceki / Sonraki ▶" ile gezilir. Ses okunamazsa bilgi yine gösterilir, altında hata mesajı.
+- **Konuşmacı adlandırma:** Konuşmacı süreleri tablosunda "Ad" hücresi düzenlenebilir (Kod, Toplam, Pay kilitli). `adlari_ayikla` özel adları çıkarır (boş/varsayılan ad sayılmaz, en fazla 40 karakter); `Uygulama.adlandir` veriyi günceller, kayıt geçmişteyse `gecmis.guncelle` ile saklar. Adlar tüm tablolara, özet cümlesine, çizelgeye ve indirilen dosyalara yansır; aynı ad iki konuşmacıya verilirse ikinciye " [spkNN]" eklenir.
+- **İndirme** (`indirme_dosyalari`): RTTM (konuşmacı alanı özel ad, boşluklar `_`; yoksa etiket), CSV (`sira, etiket, konusmaci, baslangic_sn, bitis_sn, sure_sn`; UTF-8 BOM'lu) ve JSON (veri sözlüğü + `konusmaci_adlari`).
+- **Geçmiş:** her başarılı analiz kullanıcının klasörüne `gecmis.kaydet` ile yazılır (kayıt hatası analizi bozmaz, sarı kutuda gösterilir). "Geçmiş" sekmesi yalnızca kullanıcının kendi kayıtlarını listeler; seçilen kayıt **Aç** ile yeniden hesaplamadan açılır, **Sil** ile kalıcı olarak silinir. Bir kullanıcı başkasının kaydını açamaz/silemez (yalnızca kendi klasörüne bakılır).
+- **Modeller:** ECAPA ve Silero VAD ilk analizde bir kez yüklenir ve süreç boyunca tutulur; GPU varsa ECAPA onu kullanır. İstekler kuyrukla sırayla işlenir (`queue()`).
 
 ### 3.16 `src/gorsel_etkilesimli.py` (arayüz görselleri, plotly)
 
@@ -408,15 +424,15 @@ arayuz_olustur(hat=None) -> gradio.Blocks
 konusmaci_esle(ref, hyp) -> dict[str, str]                       # {sistem etiketi: referans etiketi}
 renkler(hyp_etiketler, ref_etiketler=None, esleme=None) -> tuple[dict, dict]   # (sistem, referans) renkleri
 hata_bolgeleri(ref, hyp, esleme: dict) -> list[tuple[float, float, str]]   # tür: kacirilan/yanlis_alarm/karisiklik
-zaman_cizelgesi(seritler: list[dict], degisimler=(), baslik=None) -> plotly.graph_objects.Figure
+zaman_cizelgesi(seritler: list[dict], degisimler=(), baslik=None, vurgu=None, satir_px=30, lejant=False) -> Figure
 hata_cizelgesi(bolgeler, sure_sn=None) -> plotly.graph_objects.Figure
 benzerlik_haritasi(etiketler, matris, adlar=None) -> plotly.graph_objects.Figure
 ```
-- Raporlardaki PNG çizimleri `src/gorsel.py`'de (matplotlib) kalır; arayüz bu modülü kullanır. plotly ve scipy fonksiyon içinde import edilir.
+- Raporlardaki PNG çizimleri `src/gorsel.py`'de (matplotlib) kalır; arayüz bu modülü kullanır. plotly ve scipy fonksiyon içinde import edilir. `plotly==6.9.0` (plotly.js 3.7; gradio 6.17.3 arayüzündeki plotly.js 3.8 ile aynı ana sürüm).
 - `konusmaci_esle`: örtüşme süresi matrisinde Macar algoritması (`scipy.optimize.linear_sum_assignment`, en büyükleme); örtüşmesi 0 olan çift eşleşme sayılmaz.
 - `renkler`: referans yoksa sistem renkleri `gorsel.renk_haritasi` ile aynıdır. Referans varsa referans etiketleri sıralanıp tab10/tab20'den renk alır; eşleşen sistem konuşmacısı eşinin rengini, eşleşmeyenler `GRILER` tonlarını alır.
-- `hata_bolgeleri`: her temel aralıkta (collar'sız, ms) R = etkin referans, H = etkin sistem konuşmacıları (eşlemeyle referans adına çevrilmiş): kaçırılan |R| > |H|, yanlış alarm |H| > |R|, karışıklık min(|R|, |H|) > |R ∩ H|; bir aralık birden çok türde olabilir; aynı türün bitişik aralıkları birleşir. Collar uygulanmadığı için toplam süreler DER bileşenleriyle birebir aynı değildir (gösterim içindir).
-- `zaman_cizelgesi`: `seritler` = `[{"ad", "segmentler", "renk", "adlar"}]` üstten alta; her şeritte konuşmacı başına bir satır; üzerine gelince konuşmacı, başlangıç, bitiş, süre; `degisimler` dikey kesikli çizgi; x ekseni yakınlaştırılabilir, y sabit. Arka plan saydam, yazı ve ızgara gri (açık ve koyu temada okunur).
+- `hata_bolgeleri`: her temel aralıkta (collar'sız, ms) R = etkin referans, H = etkin sistem konuşmacıları (eşlemeyle referans adına çevrilmiş): kaçırılan |R| > |H|, yanlış alarm |H| > |R|, karışıklık min(|R|, |H|) > |R ∩ H|; bitişik aynı tür aralıklar birleşir. Collar uygulanmadığı için gösterim içindir.
+- `zaman_cizelgesi`: `seritler` = `[{"ad", "segmentler", "renk", "adlar"}]`; birden çok şerit ayrı alt grafiklerde, grup başlıkları ve aralarında boşlukla (ortak x ekseni). Satırlar `adlar` sırasıyla (yoksa alfabetik). Üzerine gelince konuşmacı, başlangıç, bitiş, süre; `degisimler` tüm gruplarda dikey kesikli çizgi; `vurgu=(bas, bit)` sarı bant; `satir_px` satır yüksekliği; `lejant=True` grup başlıklı yatay lejant. Arka plan saydam, yazı ve ızgara gri (açık ve koyu temada okunur).
 - `benzerlik_haritasi`: kosinüs benzerliği ısı haritası (-1..1, değerler hücrede).
 
 ### 3.17 `src/gecmis.py` (analiz geçmişi)
@@ -426,10 +442,32 @@ gecmis_dizini() -> str | None                      # KT_GECMIS_DIZIN'in gerçek 
 kaydet(kok, veri, ses_yolu=None, rttm_yolu=None, zaman=None) -> str   # klasör adı
 listele(kok) -> list[dict]                         # [{"ad", "tarih", "dosya", "konusmaci", "ses_sn"}], yeniden eskiye
 ac(kok, ad) -> dict                                # veri + "rttm_yolu", "ses_yolu" (yoksa None), "gecmis_adi"
+guncelle(kok, ad, veri) -> None                    # sonuc.json'u günceller (ör. konuşmacı adları)
 sil(kok, ad) -> None
 ```
-- Klasör: `<YYYYAAGG-SSDDss>_<dosya_id>/` (aynı saniyede ikinci kayıtta `-2`, `-3`, …); içinde `sonuc.json` (veri sözlüğü; yerel yollar yazılmaz, `kayit_tarihi`, `rttm`, `ses` dosya adları eklenir), `<dosya_id>.rttm` ve ses kopyası (yalnızca `MAKS_SES_BAYT` = 50 MB altıysa; değilse `ses_notu`).
-- `ac`/`sil`: `ad` kökün **doğrudan** alt klasörü olmalı ve içinde `sonuc.json` bulunmalı (gerçek yolla denetlenir); aksi halde `ValueError`. Bozuk kayıtlar `listele`'de atlanır. Yalnızca standart kütüphane.
+- Arayüz `kok` olarak `KT_GECMIS_DIZIN/<kullanıcı kimliği>/` verir (kullanıcıya özel geçmiş).
+- Klasör: `<YYYYAAGG-SSDDss>_<dosya_id>/` (aynı saniyede ikinci kayıtta `-2`, …); içinde `sonuc.json` (veri sözlüğü; yerel yollar yazılmaz, `kayit_tarihi`, `rttm`, `ses` dosya adları eklenir), `<dosya_id>.rttm` ve ses kopyası (yalnızca `MAKS_SES_BAYT` = 50 MB altıysa; değilse `ses_notu`). `guncelle` dosya adlarını ve kayıt tarihini korur, atomik yazar.
+- `ac`/`guncelle`/`sil`: `ad` kökün **doğrudan** alt klasörü olmalı ve içinde `sonuc.json` bulunmalı (gerçek yolla denetlenir); aksi halde `ValueError`. Bozuk kayıtlar `listele`'de atlanır. Yalnızca standart kütüphane.
+
+### 3.18 `src/hesap.py` (uygulama içi hesaplar)
+
+```python
+kayit_acik() -> bool                               # KT_KAYIT_ACIK "0" değilse True
+db_yolu() -> str | None                            # KT_KULLANICI_DB
+class HesapDeposu(yol: str, oturum_sn: int = 43200, saat=time.time)
+    kayit(ad, eposta, sifre, tekrar) -> dict       # {"id", "ad", "eposta"}
+    giris(eposta, sifre) -> str                    # oturum anahtarı
+    oturum_ac(kullanici) -> str
+    kullanici(anahtar) -> dict | None              # geçersiz / süresi dolmuşsa None
+    cikis(anahtar) -> None
+class HesapHatasi(ValueError)                      # kullanıcıya gösterilebilir mesaj
+```
+- **Kayıt:** ad (1–60 karakter), e-posta (küçük harfe çevrilir, biçim denetlenir), şifre en az 8 karakter ve tekrarıyla aynı. Aynı e-posta ikinci kez kaydolamaz. Kullanıcı kimliği rastgele (`uuid4().hex`).
+- **Şifre saklama:** `hashlib.scrypt` (n=2¹⁴, r=8, p=1, 32 bayt) ve kullanıcıya özel 16 baytlık rastgele tuz; düz şifre hiçbir yere yazılmaz; karşılaştırma `hmac.compare_digest`.
+- **Dosya:** `{"surum": 1, "kullanicilar": {eposta: {id, ad, eposta, tuz, ozet, scrypt_n, scrypt_r, scrypt_p, scrypt_dklen, olusturma}}}`. Yazma süreç içi kilit + `<db>.lock` dosya kilidi (`O_EXCL`; 30 sn'den eski kilit bayat sayılıp silinir) altında, geçici dosya + `os.replace` ile atomik.
+- **Giriş:** hatalı şifre ve kayıtsız e-posta aynı genel mesajı alır (`"E-posta veya şifre hatalı."`; kayıtsız e-postada da scrypt çalışır). Aynı e-postaya `MAKS_DENEME` = 5 hatalı denemeden sonra `KILIT_SN` = 300 sn giriş kapanır (kilitliyken doğru şifre de reddedilir).
+- **Oturum:** `secrets.token_urlsafe(32)` anahtar, yalnızca bellekte, `OTURUM_SN` = 12 saat; süresi dolanlar temizlenir. Sunucu yeniden başlarsa yeniden giriş gerekir.
+
 ## 4. Kenar durumlar
 
 - **Kısa dosya / kısa konuşma (1,5 sn'den az):** Hata verilmez. Uyarı yazılır, tüm konuşma tek segment sayılır, tek konuşmacı (`spk00`) atanır, çıkış kodu 0. Bu durumda `main` kümelemeyi hiç çağırmaz; VAD bölgelerinin her biri `spk00` etiketiyle doğrudan segment olur. (Ayrıca `kumele`, `N == 1` için `[0]` döner.)

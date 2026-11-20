@@ -35,7 +35,6 @@ def test_sunucu_yolu_degisken_yoksa_kapali(tmp_path, monkeypatch):
     monkeypatch.delenv("KT_IZINLI_DIZIN", raising=False)
     with pytest.raises(ValueError, match="kapalı"):
         arayuz.ses_yolu_sec(None, _dosya(tmp_path, "a.wav"))
-    assert arayuz.izinli_yollar() == [] or "KT_GECMIS_DIZIN" in os.environ
 
 
 def test_sunucu_yolu_izinli_klasor_ici(tmp_path, monkeypatch):
@@ -81,18 +80,6 @@ def test_sembolik_baglantiyla_kacis_engellenir(tmp_path, monkeypatch):
     monkeypatch.setenv("KT_IZINLI_DIZIN", str(izinli))
     with pytest.raises(ValueError, match="dışında"):
         arayuz.ses_yolu_sec(None, "bag.wav")
-
-
-def test_app_kimlik(monkeypatch):
-    import app
-
-    monkeypatch.delenv("KT_KULLANICI", raising=False)
-    monkeypatch.delenv("KT_SIFRE", raising=False)
-    assert app.kimlik() is None
-    monkeypatch.setenv("KT_KULLANICI", "grup")
-    assert app.kimlik() is None  # şifre yoksa koruma yok
-    monkeypatch.setenv("KT_SIFRE", "s3")
-    assert app.kimlik() == ("grup", "s3")
 
 
 # --- 2. Geçmiş -----------------------------------------------------------------------------------
@@ -246,26 +233,27 @@ def test_basit_ve_gelismis_gorunum(tmp_path):
     ses = _dosya(tmp_path, "ikgcq_028.0-118.0.wav")  # data/sample'da aynı adlı RTTM: otomatik referans
     veri, _, u = arayuz.analiz_et(ses, "ecapa", 0, 0, None, hat=sahte_ayrintili)
     assert u == "" and veri["metrikler"] and veri["vad"] and veri["sureler"] and veri["benzerlik"]
-    json.dumps(veri)  # geçmişe yazılabilir
+    json.dumps({k: v for k, v in veri.items()})  # geçmişe yazılabilir
 
     b = arayuz.gorunum_verisi(veri, "Basit")
-    assert not b["gelismis"] and b["referans_var"] and "Konuşmacı 1" in b["ozet"]
-    assert b["degisimler"] == b["dogruluk"] == "" and b["hata_cizelgesi"] is None and b["benzerlik"] is None
-    satirlar = set(b["cizelge"].layout.yaxis.categoryarray)
-    assert satirlar == {"Konuşmacı 1", "Konuşmacı 2"}  # tek (sistem) şerit
+    assert not b["gelismis"] and b["referans_var"] and "Konuşmacı 1" in b["ozet"] and "kt-ozet-kart" in b["ozet_html"]
+    assert set(b["cizelge"].layout.yaxis.categoryarray) == {"Konuşmacı 1", "Konuşmacı 2"}  # tek (sistem) grup
+    assert len(b["cizelge"].layout.shapes) == 2 and not b["cizelge"].layout.annotations  # 2 değişim, grup başlığı yok
+    assert b["cizelge"].layout.height >= 70 + 2 * 40  # konuşmacı başına en az 40 px
     assert list(b["segmentler"].data["Konuşmacı"]) == ["Konuşmacı 1", "Konuşmacı 2", "Konuşmacı 1"]
-    assert len(b["cizelge"].layout.shapes) == 2  # değişim noktaları kesikli çizgi
+    assert list(b["segmentler"].data["▶"]) == ["▶"] * 3
+    assert list(b["sure_tablosu"].data["Kod"]) == ["spk00", "spk01"]
+    # gelişmiş bölümler basit modda da doldurulur (geçiş anında olur, sekme görünürlüğü değişmez)
+    assert "DER" in b["bilesenler"] and b["hata_cizelgesi"] is not None and b["benzerlik"] is not None
 
     g = arayuz.gorunum_verisi(veri, "Gelişmiş")
-    assert g["gelismis"] and "spk00" in g["sureler"] and "Konuşmacı 1" not in g["sureler"]
-    satirlar = list(g["cizelge"].layout.yaxis.categoryarray)
-    assert any(s.startswith("Referans ·") for s in satirlar) and any(s.startswith("VAD ·") for s in satirlar)
-    assert "DER" in g["bilesenler"] and "doğru eşleşen" in g["eslesmeler"] and "Kaçırılan" in g["eslesmeler"]
-    assert g["hata_cizelgesi"] is not None
-    assert "Kümeleme" in g["asamalar"] and g["benzerlik"] is not None and "SPEAKER" in g["rttm_metni"]
-    # tablo ve çizelge renkleri aynı (referans eşlemesiyle)
-    ilk_iz = g["cizelge"].data[0]
-    assert ilk_iz.marker.color in g["renk"].values() or ilk_iz.marker.color in gorsel.TAB10
+    assert g["gelismis"] and list(g["sure_tablosu"].data["Ad (düzenlenebilir)"]) == ["spk00", "spk01"]
+    basliklar = [a.text for a in g["cizelge"].layout.annotations]
+    assert basliklar == ["Referans", "Sistem", "VAD"] and g["cizelge"].layout.showlegend
+    assert "doğru eşleşen" in g["eslesmeler"] and "Kaçırılan" in g["eslesmeler"]
+    assert "Kümeleme" in g["asamalar"] and "SPEAKER" in g["rttm_metni"]
+    sistem_izleri = [iz for iz in g["cizelge"].data if iz.legendgroup == "Sistem"]
+    assert {iz.marker.color for iz in sistem_izleri} <= set(g["renk"].values())  # tablo ve çizelge aynı renk
 
 
 def test_gorunum_referanssiz_dogruluk_yok(tmp_path):
@@ -273,9 +261,8 @@ def test_gorunum_referanssiz_dogruluk_yok(tmp_path):
     pytest.importorskip("pandas")
     veri, _, _ = arayuz.analiz_et(_dosya(tmp_path, "kayit.wav"), "ecapa", 0, 0, None, hat=sahte_ayrintili)
     g = arayuz.gorunum_verisi(veri, "Gelişmiş")
-    assert not g["referans_var"] and g["dogruluk"] == "" and g["hata_cizelgesi"] is None
+    assert not g["referans_var"] and g["dogruluk"].startswith("Referans RTTM verilmedi") and g["hata_cizelgesi"] is None
     assert g["renk"] == gorsel.renk_haritasi(["spk00", "spk01"])
-
 
 def test_hat_ayrintili_anahtarlar(monkeypatch):
     monkeypatch.setattr(ana.ses_girdi, "ses_yukle", lambda yol, maks: (np.zeros(16000, dtype=np.float32), 16000))
@@ -290,6 +277,6 @@ def test_arayuz_kurulur_ortamla(tmp_path, monkeypatch):
     pytest.importorskip("gradio")
     monkeypatch.setenv("KT_IZINLI_DIZIN", str(tmp_path))
     monkeypatch.setenv("KT_GECMIS_DIZIN", str(tmp_path / "gecmis"))
-    assert arayuz.izinli_yollar() == [os.path.realpath(tmp_path), os.path.realpath(tmp_path / "gecmis")]
+    monkeypatch.setenv("KT_KULLANICI_DB", str(tmp_path / "k.json"))
     demo = arayuz.arayuz_olustur(hat=sahte_ayrintili)
-    assert demo.title == arayuz.SAYFA_BASLIGI
+    assert demo.title == arayuz.SAYFA_BASLIGI and demo.uygulama.gecmis_kok == os.path.realpath(tmp_path / "gecmis")

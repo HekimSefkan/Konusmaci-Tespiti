@@ -39,25 +39,32 @@ Varsayılan yöntem **ECAPA**'dır (Hafta 4'te VoxConverse dev değerlendirme ya
 
 ## Arayüzü çalıştırma
 
-Gradio web arayüzü ses dosyasını (WAV, MP3, FLAC; en fazla 1800 sn) hattan geçirir ve şunları gösterir: renkli konuşmacı zaman çizelgesi, segment tablosu, konuşmacı başına toplam süre, değişim noktaları, indirilebilir RTTM ve işlem süresi. Referans RTTM verilirse DER, JER ve değişim F1 de hesaplanır (±0,25 sn collar, örtüşme dahil). Yöntem (ECAPA varsayılan, MFCC), konuşmacı sayısı, eşik ve referans RTTM "Gelişmiş ayarlar" bölümündedir; konuşmacı sayısı ve eşik için 0 = otomatik (sayı eşikle bulunur, eşik `src/varsayilanlar.json`'dan). "Sunucudaki ses yolu" doluysa yüklenen dosya yerine o yol okunur (ör. Colab'da Drive'daki `Hafta2/ornek_ses/...wav`). Referans verilmezse ses dosyasının adıyla aynı adlı RTTM `data/sample/` veya `data/sample/edge/` içinde varsa otomatik referans alınır ve sonuçta "(otomatik)" diye belirtilir.
+Gradio web arayüzü ses dosyasını (WAV, MP3, FLAC; en fazla 1800 sn) hattan geçirir; kimin ne zaman konuştuğunu, konuşmacı değişim noktalarını ve referans verilirse doğruluğu (DER, JER, değişim F1; ±0,25 sn collar, örtüşme dahil) gösterir.
+
+**Colab'da (önerilen):** [notebooks/arayuz_demo.ipynb](notebooks/arayuz_demo.ipynb) defterini açın ve hücreleri sırayla çalıştırın. Defter Drive'ı bağlar, repoyu günceller, bağımlılıkları Colab'ın torch'u ile kurar, ortam değişkenlerini Drive'a ayarlar (`Hafta7/kullanicilar.json`, `Hafta7/gecmis`) ve `python app.py --share` ile başlatır. Çıktıdaki `https://….gradio.live` bağlantısını açın.
+
+**Yerelde:**
 
 ```bash
 python app.py
 ```
-Yerelde http://127.0.0.1:7860 adresinde açılır (`--port` ile değiştirilebilir). Kurulum için aşağıdaki "Kurulum" bölümüne bakın; `gradio` `requirements.txt`'tedir.
+http://127.0.0.1:7860 adresinde açılır (`--port` ile değiştirilebilir). `--share` Gradio'nun genel geçici bağlantısını da üretir. Kurulum için aşağıdaki "Kurulum" bölümüne bakın; `gradio` ve `plotly` `requirements.txt`'tedir.
 
-```bash
-python app.py --share
-```
-Gradio'nun genel geçici bağlantısını da üretir (Colab için). Colab'da hazır defter: [notebooks/arayuz_demo.ipynb](notebooks/arayuz_demo.ipynb) (Drive'ı bağlar, repoyu günceller, bağımlılıkları Colab'ın torch'u ile kurar, ortam değişkenlerini ayarlar, şifreyi sorar ve arayüzü başlatır). Modeller ilk analizde bir kez yüklenir; GPU varsa ECAPA onu kullanır. Arayüz mantığı `src/arayuz.py`'dedir.
+**Kullanım akışı:**
+1. Açılışta **Kayıt ol** (ad, e-posta, en az 8 karakterlik şifre) veya **Giriş yap**. Oturum tarayıcıda tutulur; sayfa yenilense de açık kalır, **Çıkış** ile kapanır.
+2. **Analiz** sekmesinde ses dosyasını yükleyin (ya da "Sunucudaki ses yolu"na izinli klasöre göre bir yol yazın, ör. `Hafta2/ornek_ses/sldwj_000.0-090.0.wav`) ve **Analiz et**'e basın. İlk analizde modeller yüklenir (1–2 dk). Yöntem (ECAPA varsayılan, MFCC), konuşmacı sayısı ve eşik (0 = otomatik) ve referans RTTM "Gelişmiş ayarlar"dadır. Referans verilmezse aynı adlı `data/sample/` RTTM'i otomatik referans alınır.
+3. Sonuçlar: özet cümlesi, özet kartları, ses oynatıcı, etkileşimli zaman çizelgesi (plotly), konuşmacı süreleri (Ad hücresi düzenlenerek konuşmacılara ad verilir), segmentler (▶ ile dinleme, ◀ Önceki / Sonraki ▶, seçili segment çizelgede vurgulanır) ve RTTM / CSV / JSON indirme.
+4. Sağ üstteki **Basit / Gelişmiş** anahtarı görünümü yeniden analiz yapmadan değiştirir. Gelişmiş: `spkNN` etiketleri, Referans / Sistem / VAD gruplu çizelge, değişim noktaları, Doğruluk (DER/JER/F1, bileşenler, hata çizelgesi, değişim eşleşmeleri), Hat ayrıntıları (aşama süreleri, benzerlik ısı haritası), ham RTTM.
+5. **Geçmiş** sekmesi yalnızca kendi analizlerinizi listeler; kayıt yeniden hesaplamadan açılır veya silinir. **Hakkında** sekmesi sistemi ve doğrulama sonucunu özetler.
 
 | Ortam değişkeni | Etkisi |
 |---|---|
-| `KT_KULLANICI`, `KT_SIFRE` | İkisi de varsa arayüz şifreyle korunur. `--share` şifresiz kullanılırsa uyarı yazılır. |
+| `KT_KULLANICI_DB` | Hesapların JSON dosyası (şifreler scrypt + tuzla); yoksa `~/.konusmaci-tespiti/kullanicilar.json`. |
+| `KT_KAYIT_ACIK` | `0` ise yeni kayıt kapalı (yalnızca giriş). Kayıt açıkken `--share` bağlantısını yalnızca güvendiğiniz kişilerle paylaşın; uygulama bu konuda uyarı yazar. |
 | `KT_IZINLI_DIZIN` | "Sunucudaki ses yolu" yalnızca bu klasörün altındaki dosyaları açar (`../` ve sembolik bağlantıyla kaçış engellenir); yoksa alan gizlenir. |
-| `KT_GECMIS_DIZIN` | Her analiz buraya kaydedilir (`sonuc.json`, RTTM, 50 MB altıysa ses kopyası); "Geçmiş" sekmesinden yeniden hesaplamadan açılır veya silinir. Yoksa geçmiş kapalı. |
+| `KT_GECMIS_DIZIN` | Analiz geçmişi; her kullanıcının kayıtları kendi alt klasöründe (`sonuc.json`, RTTM, 50 MB altıysa ses kopyası). Yoksa geçmiş kapalı. |
 
-Sayfanın üstündeki **Basit / Gelişmiş** anahtarı görünümü değiştirir. *Basit*: "Konuşmacı 1, 2, …" adları, özet cümlesi, özet kartları, zaman çizelgesi, konuşmacı süreleri. *Gelişmiş*: `spkNN` etiketleri, referans ve VAD şeritleri, değişim noktaları, referans varsa DER/JER/F1 ve bileşenleri, hata çizelgesi ve değişim noktası eşleşmeleri, aşama süreleri, konuşmacı benzerlik ısı haritası, ham RTTM. Zaman çizelgesi etkileşimlidir (plotly; üzerine gelince ayrıntı, yakınlaştırma, değişim noktaları kesikli çizgi). Referans varsa sistem konuşmacıları referansa Macar algoritmasıyla eşlenir ve aynı renkte gösterilir. Segment tablosunda bir satır seçildiğinde o segmentin sesi çalınır.
+Güvenlik: aynı e-postaya 5 hatalı girişten sonra 5 dk bekleme; her işlem önce oturumu sunucuda doğrular; API sayfası ve istemci erişimi kapalıdır. Arayüz mantığı `src/arayuz.py`, hesaplar `src/hesap.py`, geçmiş `src/gecmis.py`, etkileşimli çizimler `src/gorsel_etkilesimli.py`'dedir (ayrıntı: [docs/arayuz.md](docs/arayuz.md) 3.15–3.18).
 
 ## Kurulum
 

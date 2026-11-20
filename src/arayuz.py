@@ -11,12 +11,13 @@ import html
 import math
 import os
 import re
+import shutil
 import tempfile
 import time
 from bisect import bisect_right
 from dataclasses import dataclass
 
-from . import cikti, degerlendirme, gecmis, gorsel, gorsel_etkilesimli, main as ana, ses_girdi, varsayilanlar
+from . import cikti, degerlendirme, gecmis, gorsel, gorsel_etkilesimli, hesap, main as ana, ses_girdi, varsayilanlar
 
 BASLIK = "Konuşmacı Değişimi Tespiti"
 SAYFA_BASLIGI = f"{BASLIK} — Grup_68"
@@ -418,16 +419,13 @@ def gorunum_cikti(ses_yolu, yontem, konusmaci_sayisi, esik, ref_rttm, sunucu_yol
 
 
 # ---------------------------------------------------------------------------
-# Yeni arayüz: veri sözlüğü, basit/gelişmiş görünüm, geçmiş, segment dinleme
+# Yeni arayüz: veri sözlüğü, basit/gelişmiş görünüm, adlandırma, indirme, geçmiş, segment dinleme
 # ---------------------------------------------------------------------------
 MODLAR = ("Basit", "Gelişmiş")
-SEGMENT_SUTUNLARI = ["#", "Konuşmacı", "Başlangıç", "Bitiş", "Süre (sn)"]
+SEGMENT_SUTUNLARI = ["▶", "#", "Konuşmacı", "Başlangıç", "Bitiş", "Süre (sn)"]
+SURE_SUTUNLARI = ["Kod", "Ad (düzenlenebilir)", "Toplam", "Pay"]
 GECMIS_SUTUNLARI = ["Tarih", "Dosya", "Konuşmacı", "Süre", "Kayıt"]
-
-
-def izinli_yollar() -> list[str]:
-    """Gradio'nun dosya sunabileceği ek klasörler (launch(allowed_paths=...)): izinli ve geçmiş klasörü."""
-    return [y for y in (izinli_dizin(), gecmis.gecmis_dizini()) if y]
+MAKS_AD = 40
 
 
 def bilgi_html(mesaj: str) -> str:
@@ -435,10 +433,24 @@ def bilgi_html(mesaj: str) -> str:
     return f'<div class="kt-uyari kt-bilgi" role="status">{_md_html(mesaj)}</div>' if mesaj else ""
 
 
-def konusmaci_adlari(segmentler, basit: bool) -> dict[str, str]:
-    """Görünen adlar: basitte toplam süreye göre "Konuşmacı 1, 2, …", gelişmişte etiketin kendisi (spkNN)."""
-    etiketler = [e for e, *_ in konusmaci_toplamlari(segmentler)]
-    return {e: (f"Konuşmacı {i}" if basit else e) for i, e in enumerate(etiketler, 1)}
+def konusmaci_adlari(segmentler, basit: bool, ozel: dict | None = None) -> dict[str, str]:
+    """Görünen adlar. Basit: "Konuşmacı 1, 2, …" (toplam süreye göre); gelişmiş: etiket (spkNN).
+
+    ozel: kullanıcının verdiği adlar {etiket: ad}; basitte ad, gelişmişte "ad (spkNN)" gösterilir.
+    Aynı ad iki konuşmacıya düşerse sonrakine " [spkNN]" eklenir (adlar tekildir).
+    """
+    ozel = ozel or {}
+    sonuc, kullanilan = {}, set()
+    for i, (e, *_) in enumerate(konusmaci_toplamlari(segmentler), 1):
+        if ozel.get(e):
+            ad = ozel[e] if basit else f"{ozel[e]} ({e})"
+        else:
+            ad = f"Konuşmacı {i}" if basit else e
+        if ad in kullanilan:
+            ad = f"{ad} [{e}]"
+        kullanilan.add(ad)
+        sonuc[e] = ad
+    return sonuc
 
 
 def konusmaci_benzerligi(pencereler, X, segmentler) -> dict | None:
@@ -488,6 +500,7 @@ def veri_olustur(s: Sonuc, ref_notu: str = "", ayarlar: dict | None = None, dosy
         "sureler": {k: float(v) for k, v in a["sureler"].items()} if a.get("sureler") else None,
         "kullanilan_esik": a.get("esik"),
         "benzerlik": konusmaci_benzerligi(a.get("pencereler") or [], a.get("X"), s.segmentler) if a else None,
+        "ozel_adlar": {},
         "rttm_metni": rttm_metni, "rttm_yolu": s.rttm_yolu, "ses_yolu": None,
     }
 
@@ -529,12 +542,27 @@ def segment_secimi(veri: dict | None, ses_bilgi: dict | None, satir, yukle=None)
             f"Çalınan segment: **{e}**, {cikti._zaman(a)} – {cikti._zaman(b)}")
 
 
+def segment_bilgisi(veri: dict, satir: int, mod: str = "Basit") -> str:
+    """Oynatıcının yanındaki bilgi: konuşmacı, başlangıç–bitiş, süre, sıra."""
+    seg = veri["segmentler"]
+    a, b, e = seg[satir]
+    ad = konusmaci_adlari(seg, mod != "Gelişmiş", veri.get("ozel_adlar")).get(e, e)
+    sure = f"{b - a:.2f}".replace(".", ",")
+    return (f"**{html.escape(ad)}**  \n{cikti._zaman(a)} – {cikti._zaman(b)} · {sure} sn  \n"
+            f"Segment {satir + 1} / {len(seg)}")
+
+
 def _yuzde_virgul(x: float) -> str:
     return f"%{x:.1f}".replace(".", ",")
 
 
+def _virgul(x: float, basamak: int = 2) -> str:
+    """Sayıyı Türkçe ondalık virgülle yazar (NaN için "–")."""
+    return "–" if x != x else f"{x:.{basamak}f}".replace(".", ",")
+
+
 def ozet_cumlesi(segmentler, adlar: dict | None = None) -> str:
-    """Basit görünümdeki Türkçe özet: kaç kişi, en çok konuşan ve payı, kaç değişim."""
+    """Türkçe özet: kaç kişi, en çok konuşan ve payı, kaç değişim."""
     adlar = adlar or {}
     toplamlar = konusmaci_toplamlari(segmentler)
     if not toplamlar:
@@ -552,21 +580,56 @@ def _yazi_rengi(renk: str) -> str:
     return "#000000" if 0.299 * r + 0.587 * g + 0.114 * b > 150 else "#ffffff"
 
 
-def segment_tablosu_df(segmentler, renk: dict, adlar: dict):
-    """Seçilebilir segment tablosu (pandas Styler; Konuşmacı hücresi konuşmacı renginde)."""
-    import pandas as pd
-
-    df = pd.DataFrame([[i, adlar.get(e, e), cikti._zaman(a), cikti._zaman(b), round(b - a, 2)]
-                       for i, (a, b, e) in enumerate(segmentler, 1)], columns=SEGMENT_SUTUNLARI)
-    etiketler = [e for *_, e in segmentler]
-
-    def boya(sutun):
-        if sutun.name != "Konuşmacı":
-            return [""] * len(sutun)
+def _boyali(df, sutun: str, etiketler, renk: dict):
+    def boya(s):
+        if s.name != sutun:
+            return [""] * len(s)
         return [f"background-color: {renk.get(e, '#888888')}; color: {_yazi_rengi(renk.get(e, '#888888'))}"
                 for e in etiketler]
 
     return df.style.apply(boya)
+
+
+def segment_tablosu_df(segmentler, renk: dict, adlar: dict):
+    """Seçilebilir segment tablosu (pandas Styler): ▶, sıra, konuşmacı (renkli), başlangıç, bitiş, süre."""
+    import pandas as pd
+
+    df = pd.DataFrame([["▶", i, adlar.get(e, e), cikti._zaman(a), cikti._zaman(b), _virgul(b - a, 2)]
+                       for i, (a, b, e) in enumerate(segmentler, 1)], columns=SEGMENT_SUTUNLARI)
+    return _boyali(df, "Konuşmacı", [e for *_, e in segmentler], renk)
+
+
+def sure_tablosu_df(segmentler, renk: dict, adlar: dict):
+    """Konuşmacı süreleri (pandas Styler): kod (renkli), düzenlenebilir ad, toplam süre, pay."""
+    import pandas as pd
+
+    toplamlar = konusmaci_toplamlari(segmentler)
+    df = pd.DataFrame([[e, adlar.get(e, e), _sure_yaz(s), _yuzde_virgul(y)] for e, s, y in toplamlar],
+                      columns=SURE_SUTUNLARI)
+    return _boyali(df, "Kod", [e for e, *_ in toplamlar], renk)
+
+
+def adlari_ayikla(veri: dict, tablo) -> dict[str, str]:
+    """Konuşmacı süreleri tablosundan özel adları çıkarır: {etiket: ad}.
+
+    Boş ad ve varsayılan ad ("Konuşmacı N" ya da etiket) özel ad sayılmaz; "ad (spkNN)" biçimindeki
+    sonek atılır. Adlar en fazla MAKS_AD karakter; boşluklar sadeleştirilir.
+    """
+    satirlar = tablo.values.tolist() if hasattr(tablo, "values") else list(tablo or [])
+    varsayilan = konusmaci_adlari(veri["segmentler"], True)
+    ozel = {}
+    for r in satirlar:
+        if len(r) < 2:
+            continue
+        e, ad = str(r[0]), re.sub(r"\s+", " ", str(r[1] if r[1] is not None else "")).strip()
+        if e not in varsayilan:
+            continue
+        if ad.endswith(f" ({e})"):
+            ad = ad[: -len(f" ({e})")].strip()
+        ad = ad[:MAKS_AD]
+        if ad and ad not in (varsayilan[e], e):
+            ozel[e] = ad
+    return ozel
 
 
 def bilesen_html(metrikler: dict | None) -> str:
@@ -576,15 +639,16 @@ def bilesen_html(metrikler: dict | None) -> str:
     m = metrikler
     toplam = m["referans_sn"]
     yzd = (lambda x: _yuzde_virgul(100 * x / toplam) if toplam > 0 else "–")
+    oran = (lambda x: "–" if x != x else _yuzde_virgul(100 * x))
     hata = m["yanlis_alarm_sn"] + m["kacirilan_sn"] + m["karisiklik_sn"]
-    satirlar = [["Yanlış alarm", f"{m['yanlis_alarm_sn']:.2f}", yzd(m["yanlis_alarm_sn"])],
-                ["Kaçırılan konuşma", f"{m['kacirilan_sn']:.2f}", yzd(m["kacirilan_sn"])],
-                ["Konuşmacı karışıklığı", f"{m['karisiklik_sn']:.2f}", yzd(m["karisiklik_sn"])],
-                ["<strong>Toplam (DER)</strong>", f"<strong>{hata:.2f}</strong>", f"<strong>{_yuzde(m['der'])}</strong>"],
-                ["Referans konuşma süresi", f"{toplam:.2f}", ""],
-                ["JER", "", _yuzde(m["jer"])],
+    satirlar = [["Yanlış alarm", _virgul(m["yanlis_alarm_sn"]), yzd(m["yanlis_alarm_sn"])],
+                ["Kaçırılan konuşma", _virgul(m["kacirilan_sn"]), yzd(m["kacirilan_sn"])],
+                ["Konuşmacı karışıklığı", _virgul(m["karisiklik_sn"]), yzd(m["karisiklik_sn"])],
+                ["<strong>Toplam (DER)</strong>", f"<strong>{_virgul(hata)}</strong>", f"<strong>{oran(m['der'])}</strong>"],
+                ["Referans konuşma süresi", _virgul(toplam), ""],
+                ["JER", "", oran(m["jer"])],
                 ["Değişim F1 / kesinlik / duyarlık", "",
-                 f"{m['f1']:.3f} / {m['precision']:.3f} / {m['recall']:.3f}"]]
+                 " / ".join(_virgul(m[k], 3) for k in ("f1", "precision", "recall"))]]
     return _tablo(["Ölçü", "sn", "Değer"], satirlar, "")
 
 
@@ -608,55 +672,71 @@ def asama_html(sureler: dict | None, islem_sn: float) -> str:
     if not sureler:
         return '<div class="kt-bos">Aşama süreleri bu analiz için yok.</div>'
     adlar = {"okuma": "Ses okuma", "vad": "VAD", "oznitelik": "Öznitelik", "kumeleme": "Kümeleme"}
-    satirlar = [[adlar.get(k, k), f"{v:.2f} sn"] for k, v in sureler.items()]
-    satirlar.append(["<strong>Toplam (işlem)</strong>", f"<strong>{islem_sn:.2f} sn</strong>"])
+    satirlar = [[adlar.get(k, k), f"{_virgul(v)} sn"] for k, v in sureler.items()]
+    satirlar.append(["<strong>Toplam (işlem)</strong>", f"<strong>{_virgul(islem_sn)} sn</strong>"])
     return _tablo(["Aşama", "Süre"], satirlar, "")
 
 
-def gorunum_verisi(veri: dict, mod: str = "Basit") -> dict:
-    """Görünüm sözlüğünden ekranda gösterilecek değerler (saf; plotly ve pandas kullanır).
-
-    Anahtarlar: ozet, kartlar, cizelge, sureler, segmentler, degisimler, dogruluk, bilesenler, eslesmeler,
-    hata_cizelgesi, asamalar, benzerlik, rttm_metni, ses_yolu, rttm_yolu, gelismis, referans_var, renk, adlar.
-    Basit: "Konuşmacı N" adları, tek (sistem) şeritli çizelge. Gelişmiş: spkNN; referans ve VAD şeritleri,
-    doğruluk, eşleşme, hata çizelgesi, benzerlik ve aşama süreleri. Referans varsa sistem konuşmacıları
-    referansa Macar algoritmasıyla eşlenir; renkler çizelge ve tablolarda aynıdır.
-    """
-    basit = mod != "Gelişmiş"
+def _renk_bilgisi(veri: dict):
     seg = [tuple(x) for x in veri["segmentler"]]
     ref = [tuple(x) for x in veri["referans"]] if veri.get("referans") is not None else None
     esleme = gorsel_etkilesimli.konusmaci_esle(ref, seg) if ref else {}
     hyp_renk, ref_renk = gorsel_etkilesimli.renkler([e for *_, e in seg],
                                                     [e for *_, e in ref] if ref is not None else None, esleme)
-    adlar = konusmaci_adlari(seg, basit)
+    return seg, ref, esleme, hyp_renk, ref_renk
+
+
+def cizelge_olustur(veri: dict, mod: str = "Basit", vurgu=None):
+    """Zaman çizelgesi (plotly). Basit: yalnızca sistem şeridi, konuşmacı başına 44 px.
+    Gelişmiş: Referans / Sistem / VAD grupları ve lejant. vurgu: (bas, bit) seçili segment."""
+    basit = mod != "Gelişmiş"
+    seg, ref, _, hyp_renk, ref_renk = _renk_bilgisi(veri)
+    adlar = konusmaci_adlari(seg, basit, veri.get("ozel_adlar"))
     seritler = [{"ad": "Sistem", "segmentler": seg, "renk": hyp_renk, "adlar": adlar}]
     if not basit and ref is not None:
         seritler.insert(0, {"ad": "Referans", "segmentler": ref, "renk": ref_renk})
     if not basit and veri.get("vad"):
         seritler.append({"ad": "VAD", "segmentler": [(a, b, "konuşma") for a, b in veri["vad"]],
                          "renk": {"konuşma": "#7f7f7f"}, "adlar": {"konuşma": "konuşma bölgesi"}})
+    return gorsel_etkilesimli.zaman_cizelgesi(seritler, cikti.degisim_noktalari(seg), vurgu=vurgu,
+                                              satir_px=44 if basit else 30, lejant=not basit)
+
+
+def gorunum_verisi(veri: dict, mod: str = "Basit") -> dict:
+    """Görünüm sözlüğünden ekrandaki tüm değerler (saf; plotly ve pandas kullanır). Gelişmiş bölümler
+    her iki modda da doldurulur; mod yalnızca adları ve çizelgeyi değiştirir (geçiş anında olur).
+
+    Anahtarlar: ozet, ozet_html, kartlar, cizelge, sure_tablosu, segmentler, degisimler, dogruluk,
+    bilesenler, eslesmeler, hata_cizelgesi, asamalar, benzerlik, rttm_metni, ses_yolu, rttm_yolu,
+    gelismis, referans_var, renk, adlar. Referans varsa sistem konuşmacıları referansa Macar
+    algoritmasıyla eşlenir; renkler çizelge ve tablolarda aynıdır.
+    """
+    basit = mod != "Gelişmiş"
+    seg, ref, esleme, hyp_renk, _ = _renk_bilgisi(veri)
+    adlar = konusmaci_adlari(seg, basit, veri.get("ozel_adlar"))
     referans_var = ref is not None and bool(veri.get("metrikler"))
+    ozet = ozet_cumlesi(seg, adlar)
+    b = veri.get("benzerlik")
     d = {
-        "ozet": ozet_cumlesi(seg, adlar),
+        "ozet": ozet,
+        "ozet_html": f'<div class="kt-ozet-kart">{html.escape(ozet)}</div>',
         "kartlar": _kartlar(veri.get("dosya_adi") or veri["dosya_id"], seg, veri["ses_sn"], veri["islem_sn"],
                             veri.get("ref_notu", "")),
-        "cizelge": gorsel_etkilesimli.zaman_cizelgesi(seritler, cikti.degisim_noktalari(seg)),
-        "sureler": sure_html(seg, hyp_renk, adlar),
+        "cizelge": cizelge_olustur(veri, mod),
+        "sure_tablosu": sure_tablosu_df(seg, hyp_renk, adlar),
         "segmentler": segment_tablosu_df(seg, hyp_renk, adlar),
-        "degisimler": "", "dogruluk": "", "bilesenler": "", "eslesmeler": "", "hata_cizelgesi": None,
-        "asamalar": "", "benzerlik": None, "rttm_metni": veri.get("rttm_metni", ""),
+        "degisimler": degisim_html(seg, hyp_renk, adlar),
+        "asamalar": asama_html(veri.get("sureler"), veri["islem_sn"]),
+        "benzerlik": gorsel_etkilesimli.benzerlik_haritasi(b["etiketler"], b["matris"], adlar) if b else None,
+        "rttm_metni": veri.get("rttm_metni", ""),
+        "dogruluk": "Referans RTTM verilmedi; doğruluk ölçülemedi. Gelişmiş ayarlardan referans RTTM yükleyin "
+                    "ya da data/sample/ ile aynı adlı bir örnek ses kullanın.",
+        "bilesenler": "", "eslesmeler": "", "hata_cizelgesi": None,
         "ses_yolu": veri.get("ses_yolu"), "rttm_yolu": veri.get("rttm_yolu"),
         "gelismis": not basit, "referans_var": referans_var, "renk": hyp_renk, "adlar": adlar,
     }
-    if basit:
-        return d
-    d["degisimler"] = degisim_html(seg, hyp_renk, adlar)
-    d["asamalar"] = asama_html(veri.get("sureler"), veri["islem_sn"])
-    b = veri.get("benzerlik")
-    if b:
-        d["benzerlik"] = gorsel_etkilesimli.benzerlik_haritasi(b["etiketler"], b["matris"], adlar)
     if referans_var:
-        gri = [e for e in hyp_renk if e not in esleme]
+        gri = [adlar[e] for e in hyp_renk if e not in esleme]
         not_gri = f"\n\nReferansla eşleşmeyen sistem konuşmacıları gri: {', '.join(gri)}." if gri else ""
         d["dogruluk"] = f"{veri.get('ref_notu', '')}\n\n{METRIK_NOTU}{not_gri}".strip()
         d["bilesenler"] = bilesen_html(veri["metrikler"])
@@ -666,12 +746,59 @@ def gorunum_verisi(veri: dict, mod: str = "Basit") -> dict:
     return d
 
 
+def _dosya_kok(ad: str) -> str:
+    return re.sub(r"[^\w.-]+", "_", ad).strip("._")[:60] or "kayit"
+
+
+def indirme_dosyalari(veri: dict, klasor: str | None = None) -> tuple[str, str, str]:
+    """İndirilecek RTTM, CSV (segmentler) ve JSON (tüm sonuç) dosyalarını yazar; yolları döndürür.
+
+    Özel konuşmacı adları üçüne de yansır: RTTM'de konuşmacı alanı ad (boşluklar "_"), yoksa etiket;
+    CSV'de etiket ve ad ("Konuşmacı N" ya da özel ad); JSON'da "konusmaci_adlari". Yerel yollar yazılmaz.
+    """
+    import csv
+    import json
+
+    klasor = klasor or tempfile.mkdtemp(prefix="kt_indir_")
+    os.makedirs(klasor, exist_ok=True)
+    seg = [tuple(x) for x in veri["segmentler"]]
+    ozel = veri.get("ozel_adlar") or {}
+    adlar = konusmaci_adlari(seg, True, ozel)
+    kok = _dosya_kok(veri.get("dosya_id") or "kayit")
+    rttm = os.path.join(klasor, f"{kok}.rttm")
+    cikti.rttm_yaz([(a, b, re.sub(r"\s+", "_", ozel[e]) if e in ozel else e) for a, b, e in seg], kok, rttm)
+    csv_yolu = os.path.join(klasor, f"{kok}_segmentler.csv")
+    with open(csv_yolu, "w", encoding="utf-8-sig", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["sira", "etiket", "konusmaci", "baslangic_sn", "bitis_sn", "sure_sn"])
+        for i, (a, b, e) in enumerate(seg, 1):
+            w.writerow([i, e, adlar.get(e, e), f"{a:.3f}", f"{b:.3f}", f"{b - a:.3f}"])
+    json_yolu = os.path.join(klasor, f"{kok}_sonuc.json")
+    with open(json_yolu, "w", encoding="utf-8") as f:
+        json.dump({**{k: v for k, v in veri.items() if k not in gecmis.YEREL_ANAHTARLAR},
+                   "konusmaci_adlari": adlar}, f, ensure_ascii=False, indent=1)
+    return rttm, csv_yolu, json_yolu
+
+
+def oynatilabilir_kopya(yol: str | None) -> str | None:
+    """Ses oynatıcı için dosya: sistem geçici klasöründeyse (ör. Gradio'ya yüklenen) kendisi, değilse
+    (sunucu yolu, geçmiş kopyası) geçici klasöre kopyası. Böylece launch(allowed_paths) gerekmez ve
+    izinli/geçmiş klasörleri dışarıya açılmaz. Dosya yoksa None."""
+    if not yol or not os.path.isfile(yol):
+        return None
+    if _icinde_mi(os.path.realpath(yol), os.path.realpath(tempfile.gettempdir())):
+        return yol
+    hedef = os.path.join(tempfile.mkdtemp(prefix="kt_oynat_"), os.path.basename(yol))
+    shutil.copyfile(yol, hedef)
+    return hedef
+
+
 def analiz_et(ses_yolu, yontem, konusmaci_sayisi, esik, ref_rttm, sunucu_yolu=None, hat=None,
               gecmis_kok: str | None = None) -> tuple:
     """Yeni arayüzün analizi: (veri | None, ses_bilgi | None, uyarı HTML). İstisna fırlatmaz.
 
     Başarılıysa ve gecmis_kok verildiyse analiz geçmişe kaydedilir (veri["gecmis_adi"]); kayıt
-    hatası analizi bozmaz, sarı bilgi kutusunda gösterilir.
+    hatası analizi bozmaz, sarı bilgi kutusunda gösterilir. veri["oynat_yolu"]: oynatıcının dosyası.
     """
     s, hata, ref_notu, yol = _isle(ses_yolu, yontem, konusmaci_sayisi, esik, ref_rttm, sunucu_yolu, hat,
                                    cizelge=False)
@@ -681,6 +808,7 @@ def analiz_et(ses_yolu, yontem, konusmaci_sayisi, esik, ref_rttm, sunucu_yolu=No
     ayarlar = {"yontem": yontem or ana.VARSAYILAN_YONTEM, "konusmaci_sayisi": k, "esik": e}
     veri = veri_olustur(s, ref_notu, ayarlar, os.path.basename(yol))
     veri["ses_yolu"] = yol
+    veri["oynat_yolu"] = oynatilabilir_kopya(yol)
     a = s.ayrinti or {}
     ses_bilgi = {"yol": yol, "dizi": a.get("ses"), "sr": a.get("sr")}
     uyari = ""
@@ -706,6 +834,8 @@ def gecmis_acilis(kok: str | None, ad: str | None) -> tuple:
         veri = gecmis.ac(kok, ad)
     except ValueError as h:
         return None, None, uyari_html(f"**Hata — geçmiş:** {h}.")
+    veri.setdefault("ozel_adlar", {})
+    veri["oynat_yolu"] = oynatilabilir_kopya(veri.get("ses_yolu"))
     return veri, {"yol": veri.get("ses_yolu"), "dizi": None, "sr": None}, ""
 
 
@@ -721,19 +851,138 @@ def gecmis_silme(kok: str | None, ad: str | None) -> tuple:
     return gecmis_tablosu(kok), None, notu
 
 
+# ---------------------------------------------------------------------------
+# Oturum korumalı işlemler (gradio'dan bağımsız; testler doğrudan çağırır)
+# ---------------------------------------------------------------------------
+
+class OturumGecersiz(Exception):
+    """Oturum anahtarı yok, geçersiz veya süresi dolmuş: işlem yapılmaz, giriş ekranına dönülür."""
+
+
+class Uygulama:
+    """Arayüzün tüm işlemleri; her işlem önce oturumu sunucuda doğrular (hesap.HesapDeposu).
+
+    Geçmiş kullanıcıya özeldir: gecmis_kok/<kullanıcı kimliği>/; bir kullanıcı başkasının
+    kayıtlarını göremez, açamaz, silemez.
+    """
+
+    def __init__(self, depo: hesap.HesapDeposu, hat=None, gecmis_kok: str | None = None):
+        self.depo, self.hat, self.gecmis_kok = depo, hat, gecmis_kok
+
+    def kullanici(self, anahtar) -> dict:
+        k = self.depo.kullanici(anahtar)
+        if k is None:
+            raise OturumGecersiz()
+        return k
+
+    def gecmis_koku(self, kullanici: dict) -> str | None:
+        return os.path.join(self.gecmis_kok, kullanici["id"]) if self.gecmis_kok else None
+
+    def giris(self, eposta: str, sifre: str) -> tuple[str, dict]:
+        anahtar = self.depo.giris(eposta, sifre)
+        return anahtar, self.depo.kullanici(anahtar)
+
+    def kayit(self, ad: str, eposta: str, sifre: str, tekrar: str) -> tuple[str, dict]:
+        if not hesap.kayit_acik():
+            raise hesap.HesapHatasi("Yeni kayıt kapalı.")
+        k = self.depo.kayit(ad, eposta, sifre, tekrar)
+        return self.depo.oturum_ac(k), k
+
+    def cikis(self, anahtar) -> None:
+        self.depo.cikis(anahtar)
+
+    def analiz(self, anahtar, ses, sunucu, yontem, konusmaci_sayisi, esik, ref) -> tuple:
+        k = self.kullanici(anahtar)
+        return analiz_et(ses, yontem, konusmaci_sayisi, esik, ref, sunucu, hat=self.hat,
+                         gecmis_kok=self.gecmis_koku(k))
+
+    def gorunum(self, anahtar, veri: dict | None, mod: str) -> dict | None:
+        self.kullanici(anahtar)
+        return gorunum_verisi(veri, mod) if veri else None
+
+    def segment(self, anahtar, veri, ses_bilgi, satir) -> tuple:
+        self.kullanici(anahtar)
+        return segment_secimi(veri, ses_bilgi, satir)
+
+    def adlandir(self, anahtar, veri: dict, tablo) -> dict:
+        """Özel adları uygular; kayıt geçmişteyse (yalnızca kullanıcının klasöründe) günceller."""
+        k = self.kullanici(anahtar)
+        yeni = {**veri, "ozel_adlar": adlari_ayikla(veri, tablo)}
+        kok = self.gecmis_koku(k)
+        if kok and yeni.get("gecmis_adi"):
+            try:
+                gecmis.guncelle(kok, yeni["gecmis_adi"], yeni)
+            except (ValueError, OSError):
+                pass  # kayıt silinmiş olabilir; adlar oturumda kalır
+        return yeni
+
+    def gecmis_listesi(self, anahtar) -> list[list]:
+        return gecmis_tablosu(self.gecmis_koku(self.kullanici(anahtar)))
+
+    def gecmis_ac(self, anahtar, ad) -> tuple:
+        return gecmis_acilis(self.gecmis_koku(self.kullanici(anahtar)), ad)
+
+    def gecmis_sil(self, anahtar, ad) -> tuple:
+        return gecmis_silme(self.gecmis_koku(self.kullanici(anahtar)), ad)
+
+
+TANITIM = ("Ses kaydını yükleyin; sistem konuşma bölgelerini bulur, her konuşmacının ses izini (gömme) çıkarır "
+           "ve aynı kişiye ait bölümleri gruplayarak kimin ne zaman konuştuğunu ve konuşmacının nerede değiştiğini "
+           "gösterir. Sonuçları dinleyebilir, konuşmacılara ad verebilir ve RTTM/CSV/JSON olarak indirebilirsiniz.")
+
+HAKKINDA_HTML = """
+<div class="kt-hakkinda">
+<h3>Sistem nasıl çalışır?</h3>
+<div class="kt-akis">
+  <div class="kt-adim"><b>Ses</b><span>WAV / MP3 / FLAC → 16 kHz mono</span></div><div class="kt-ok">→</div>
+  <div class="kt-adim"><b>VAD</b><span>Silero: konuşma bölgeleri</span></div><div class="kt-ok">→</div>
+  <div class="kt-adim"><b>ECAPA</b><span>1,5 sn pencerelerden konuşmacı gömmeleri</span></div><div class="kt-ok">→</div>
+  <div class="kt-adim"><b>Kümeleme</b><span>AHC, kosinüs eşiği</span></div><div class="kt-ok">→</div>
+  <div class="kt-adim"><b>RTTM</b><span>kim, ne zaman konuştu</span></div>
+</div>
+<h3>Ölçüler</h3>
+<ul>
+  <li><b>DER</b> (diarization error rate): yanlış alarm, kaçırılan konuşma ve konuşmacı karışıklığı sürelerinin
+      toplamının referans konuşma süresine oranı. Düşük olan iyidir.</li>
+  <li><b>JER</b> (Jaccard error rate): hata her konuşmacı için ayrı hesaplanıp ortalanır; az konuşan kişilerin
+      hataları da eşit ağırlık taşır. Düşük olan iyidir.</li>
+  <li><b>Değişim F1</b>: referanstaki konuşmacı değişim noktalarının ±0,5 sn içinde bulunma başarısı (0–1).
+      Yüksek olan iyidir.</li>
+</ul>
+<h3>Doğrulama</h3>
+<p>VoxConverse dev setinin değerlendirme yarısında (108 kayıt): <b>DER %6,1</b>, <b>JER %10,5</b>,
+   <b>değişim F1 0,64</b> (DER/JER ±0,25 sn collar, örtüşen konuşma dahil).</p>
+<p class="kt-not">Ses Kayıtlarında Konuşmacı Değişimlerinin Tespiti — Grup_68</p>
+</div>
+"""
+
+GIZLI_SINIF = "kt-gizli"
+
 CSS = """
-.kt-ust h1 {margin: 0 0 4px; font-size: 1.9rem;}
-.kt-ust p {margin: 0; color: var(--body-text-color-subdued);}
+.kt-gizli {display: none !important;}
+.kt-ust {display: flex; flex-direction: column; justify-content: center;}
+.kt-ust h1 {margin: 0; font-size: 1.6rem;}
+.kt-ust p {margin: 2px 0 0; color: var(--body-text-color-subdued);}
+#kt-ustcubuk {align-items: center; border-bottom: 1px solid var(--border-color-primary); padding-bottom: 8px;}
+#kt-sag {flex: 0 1 auto !important; width: auto !important; align-items: center; justify-content: flex-end;
+         gap: 12px; flex-wrap: nowrap;}
+#kt-sag > * {flex: 0 0 auto !important; width: auto !important; min-width: 0 !important;}
+#kt-mod .wrap {flex-wrap: nowrap; gap: 4px;}
+#kt-sag .kt-kullanici {white-space: nowrap;}
+#kt-sag .kt-kullanici p {margin: 0;}
+#kt-giris-kart {max-width: 520px; margin: 12px auto;}
+.kt-tanitim {color: var(--body-text-color-subdued); max-width: 720px;}
 .kt-not {font-size: .85rem; color: var(--body-text-color-subdued);}
 #kt-analiz {min-height: 52px; font-size: 1.1rem;}
-#kt-mod {max-width: 360px;}
 .kt-uyari {border-radius: 10px; padding: 12px 14px; margin: 4px 0;}
 .kt-hata {background: #fef2f2; border: 1px solid #fca5a5; color: #991b1b;}
 .dark .kt-hata {background: #450a0a; border-color: #7f1d1d; color: #fecaca;}
 .kt-bilgi {background: #fffbeb; border: 1px solid #fcd34d; color: #92400e;}
 .dark .kt-bilgi {background: #451a03; border-color: #92400e; color: #fde68a;}
-.kt-ozet {font-size: 1.05rem;}
-.kt-dosya {font-size: .9rem; color: var(--body-text-color-subdued); margin: 2px 0 8px; word-break: break-all;}
+.kt-ozet-kart {font-size: 1.1rem; font-weight: 600; padding: 14px 16px; border-radius: 12px;
+               border: 1px solid var(--border-color-primary); border-left: 5px solid var(--color-accent);
+               background: var(--block-background-fill);}
+.kt-dosya {font-size: .9rem; color: var(--body-text-color-subdued); margin: 8px 0; word-break: break-all;}
 .kt-kartlar {display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px;}
 .kt-kart {background: var(--block-background-fill); border: 1px solid var(--border-color-primary);
           border-radius: 12px; padding: 14px 16px;}
@@ -745,10 +994,18 @@ CSS = """
 .kt-tablo th {position: sticky; top: 0; background: var(--background-fill-secondary);}
 .kt-konusmaci {white-space: nowrap;}
 .kt-nokta {display: inline-block; width: .8em; height: .8em; border-radius: 50%; margin-right: 6px; vertical-align: middle;}
-.kt-cubuk {height: 8px; border-radius: 4px; min-width: 2px;}
 .kt-bos {padding: 12px; color: var(--body-text-color-subdued);}
-@media (max-width: 640px) {.kt-ust h1 {font-size: 1.5rem;} .kt-deger {font-size: 1.35rem;}
-                           .kt-tablo th, .kt-tablo td {padding: 5px 6px;}}
+.kt-akis {display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; margin: 8px 0 16px;}
+.kt-adim {flex: 1 1 130px; border: 1px solid var(--border-color-primary); border-radius: 12px; padding: 10px 12px;
+          background: var(--block-background-fill); display: flex; flex-direction: column; gap: 4px;}
+.kt-adim b {color: var(--color-accent); font-size: 1.05rem;}
+.kt-adim span {font-size: .85rem; color: var(--body-text-color-subdued);}
+.kt-ok {display: flex; align-items: center; font-size: 1.4rem; color: var(--body-text-color-subdued);}
+@media (max-width: 640px) {#kt-sag {flex-wrap: wrap; justify-content: flex-start;}
+                           .kt-kartlar {grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px;}
+                           .kt-kart {padding: 10px 12px;}
+                           .kt-ust h1 {font-size: 1.3rem;} .kt-deger {font-size: 1.35rem;}
+                           .kt-tablo th, .kt-tablo td {padding: 5px 6px;} .kt-ok {transform: rotate(90deg);}}
 """
 
 
@@ -760,129 +1017,335 @@ def tema():
                           font=["system-ui", "-apple-system", "Segoe UI", "Roboto", "sans-serif"])
 
 
-def arayuz_olustur(hat=None):
-    """Gradio Blocks arayüzünü kurar (başlatmaz). Başlatma: app.py; tema, CSS ve izinli yollar
-    launch(theme=tema(), css=CSS, allowed_paths=izinli_yollar()) ile verilir.
+def varsayilan_uygulama(hat=None) -> Uygulama:
+    """Ortam değişkenlerinden Uygulama: KT_KULLANICI_DB (yoksa ~/.konusmaci-tespiti/kullanicilar.json),
+    KT_GECMIS_DIZIN."""
+    yol = hesap.db_yolu() or os.path.join(os.path.expanduser("~"), ".konusmaci-tespiti", "kullanicilar.json")
+    return Uygulama(hesap.HesapDeposu(yol), hat=hat, gecmis_kok=gecmis.gecmis_dizini())
 
-    "Sunucudaki ses yolu" yalnızca KT_IZINLI_DIZIN tanımlıysa, "Geçmiş" sekmesi yalnızca
-    KT_GECMIS_DIZIN tanımlıysa görünür (arayüz kurulurken okunur). hat: testler için sahte hat.
+
+def arayuz_olustur(hat=None, uygulama: Uygulama | None = None):
+    """Gradio Blocks arayüzünü kurar (başlatmaz). Başlatma: app.py; tema ve CSS
+    launch(theme=tema(), css=CSS) ile verilir.
+
+    Açılışta giriş/kayıt ekranı; oturum gr.BrowserState'te tutulur ve HER işleyici önce oturumu
+    sunucuda doğrular (geçersizse işlem yapmadan giriş ekranına döner). Tüm olaylar
+    api_visibility="private" (API sayfası ve istemci erişimi kapalı). Sekmeler baştan oluşturulur
+    ve görünürlükleri sonradan değiştirilmez; Basit/Gelişmiş geçişi yalnızca gelişmiş bölümün
+    (sütun) görünürlüğünü ve içerikleri değiştirir. hat / uygulama: testler için.
     """
     import gradio as gr
     import pandas as pd
 
+    app = uygulama or varsayilan_uygulama(hat)
     izinli = izinli_dizin()
-    gecmis_kok = gecmis.gecmis_dizini()
     esik_ipucu = ", ".join(f"{y} {varsayilanlar.esik(y)}" for y in varsayilanlar.YONTEMLER)
-    bos_df = pd.DataFrame(columns=SEGMENT_SUTUNLARI)
+    bos_seg = pd.DataFrame(columns=SEGMENT_SUTUNLARI)
+    bos_sure = pd.DataFrame(columns=SURE_SUTUNLARI)
+    gizli = "private"
+    # gradio 6.17.3'te visible güncellemeleri iç içe sütunlarda güvenilir değil (visible=False ile başlayan
+    # bileşene yeniden False gönderilince sonraki True uygulanmıyor; "hidden" ilk çizimde ve üst sütun yeniden
+    # gösterilince kayboluyor). Bu yüzden gizleme/gösterme gradio görünürlüğüyle değil CSS sınıfıyla yapılır:
+    # tüm bileşenler (ve sekmeler) baştan çizilir, yalnızca "kt-gizli" sınıfı eklenip kaldırılır.
+    def sutun(acik: bool):
+        return gr.Column(elem_classes=[] if acik else [GIZLI_SINIF])
+
+    def satir(acik: bool):
+        return gr.Row(elem_classes=[] if acik else [GIZLI_SINIF])
+    baslik_html = f'<div class="kt-ust"><h1>{BASLIK}</h1><p>{html.escape(ACIKLAMA)}</p></div>'
 
     with gr.Blocks(title=SAYFA_BASLIGI) as demo:
-        gr.HTML(f'<div class="kt-ust"><h1>{BASLIK}</h1><p>{html.escape(ACIKLAMA)}</p></div>')
-        mod = gr.Radio(choices=list(MODLAR), value=MODLAR[0], label="Görünüm", elem_id="kt-mod")
-        veri_d = gr.State(None)
-        ses_d = gr.State(None)
-        with gr.Tabs(selected="analiz") as ust:
-            with gr.Tab("Analiz", id="analiz"):
-                with gr.Row(equal_height=False):
-                    with gr.Column(scale=3, min_width=280):
-                        ses = gr.File(label="Ses dosyası (WAV, MP3, FLAC)", type="filepath", height=200)
-                    with gr.Column(scale=2, min_width=260):
-                        sunucu = gr.Textbox(label="Sunucudaki ses yolu (isteğe bağlı)", visible=izinli is not None,
-                                            placeholder="Hafta2/ornek_ses/kayit.wav",
-                                            info="İzinli klasöre göre yol; doluysa yüklenen dosya yerine kullanılır.")
-                        with gr.Accordion("Gelişmiş ayarlar", open=False):
-                            yontem = gr.Radio(choices=list(YONTEMLER), value=ana.VARSAYILAN_YONTEM, label="Yöntem")
-                            konusmaci = gr.Number(value=0, precision=0, minimum=0,
-                                                  label="Konuşmacı sayısı (0 = otomatik)")
-                            esik = gr.Number(value=0, minimum=0, step=0.01,
-                                             label=f"Eşik (0 = otomatik: {esik_ipucu})")
-                            ref = gr.File(label="Referans RTTM (isteğe bağlı)", type="filepath")
-                        dugme = gr.Button("Analiz et", variant="primary", size="lg", elem_id="kt-analiz")
-                        gr.Markdown(YUKLEME_NOTU, elem_classes="kt-not")
-                uyari = gr.HTML()
-                with gr.Column(visible=False) as sonuc_alani:
-                    ozet = gr.Markdown(elem_classes="kt-ozet")
-                    kartlar = gr.HTML()
-                    oynatici = gr.Audio(label="Ses", type="filepath", interactive=False)
-                    cizelge = gr.Plot(label="Konuşmacı zaman çizelgesi")
-                    with gr.Tabs():
-                        with gr.Tab("Konuşmacı süreleri"):
-                            sureler = gr.HTML()
-                        with gr.Tab("Segmentler"):
-                            gr.Markdown("Dinlemek için bir satır seçin.", elem_classes="kt-not")
-                            segment_df = gr.Dataframe(value=bos_df, interactive=False, max_height=420)
-                            segment_ses = gr.Audio(label="Seçilen segment", type="numpy", interactive=False,
-                                                   autoplay=True)
-                            segment_notu = gr.Markdown()
-                        with gr.Tab("Değişim noktaları", visible=False) as sk_degisim:
-                            degisimler = gr.HTML()
-                        with gr.Tab("Doğruluk", visible=False) as sk_dogruluk:
-                            bilesenler = gr.HTML()
-                            dogruluk = gr.Markdown()
-                            hata_cizelgesi = gr.Plot(label="Hata bölgeleri (collar'sız)")
-                            eslesmeler = gr.HTML()
-                        with gr.Tab("Hat ayrıntıları", visible=False) as sk_ayrinti:
-                            asamalar = gr.HTML()
-                            benzerlik = gr.Plot(label="Konuşmacı gömmeleri: kosinüs benzerliği")
-                        with gr.Tab("RTTM", visible=False) as sk_rttm:
-                            rttm_metni = gr.Code(label="RTTM", interactive=False)
-                    indir = gr.DownloadButton("RTTM indir", visible=False)
-            with gr.Tab("Geçmiş", id="gecmis", visible=gecmis_kok is not None) as sk_gecmis:
-                gr.Markdown("Bir kayıt seçip **Aç** ile sonuç ekranını yeniden hesaplamadan açın; "
-                            "**Sil** kaydı kalıcı olarak siler.", elem_classes="kt-not")
-                gecmis_df = gr.Dataframe(headers=GECMIS_SUTUNLARI, interactive=False, max_height=420)
-                with gr.Row():
-                    yenile = gr.Button("Yenile")
-                    ac = gr.Button("Aç", variant="primary")
-                    sil = gr.Button("Sil", variant="stop")
-                secili = gr.State(None)
-                gecmis_notu = gr.Markdown()
+        oturum = gr.BrowserState(None, storage_key="kt_oturum")
+        veri_d, ses_d, secili_seg, secili_kayit = gr.State(None), gr.State(None), gr.State(None), gr.State(None)
 
-        gorunum = [sonuc_alani, ozet, kartlar, oynatici, cizelge, sureler, segment_df, degisimler, sk_degisim,
-                   sk_dogruluk, bilesenler, dogruluk, hata_cizelgesi, eslesmeler, sk_ayrinti, asamalar, benzerlik,
-                   sk_rttm, rttm_metni, indir, segment_ses, segment_notu]
+        # --- Giriş ekranı ---------------------------------------------------------------
+        with gr.Column(visible=True) as giris_ekrani:
+            gr.HTML(baslik_html)
+            gr.Markdown(TANITIM, elem_classes="kt-tanitim")
+            with gr.Column(elem_id="kt-giris-kart"):
+                with gr.Tabs():
+                    with gr.Tab("Giriş yap"):
+                        g_eposta = gr.Textbox(label="E-posta", type="email")
+                        g_sifre = gr.Textbox(label="Şifre", type="password")
+                        g_dugme = gr.Button("Giriş yap", variant="primary")
+                        giris_notu = gr.Markdown()
+                    with gr.Tab("Kayıt ol", visible=hesap.kayit_acik()):
+                        k_ad = gr.Textbox(label="Ad")
+                        k_eposta = gr.Textbox(label="E-posta", type="email")
+                        k_sifre = gr.Textbox(label=f"Şifre (en az {hesap.MIN_SIFRE} karakter)", type="password")
+                        k_tekrar = gr.Textbox(label="Şifre (tekrar)", type="password")
+                        k_dugme = gr.Button("Kayıt ol", variant="primary")
+                        kayit_notu = gr.Markdown()
 
-        def guncelle(veri, mod_):
+        # --- Uygulama ---------------------------------------------------------------------
+        with gr.Column(elem_classes=[GIZLI_SINIF]) as uygulama_ekrani:
+            with gr.Row(elem_id="kt-ustcubuk", equal_height=True):
+                with gr.Column(scale=3, min_width=260):
+                    gr.HTML(baslik_html)
+                with gr.Row(elem_id="kt-sag"):
+                    mod = gr.Radio(choices=list(MODLAR), value=MODLAR[0], show_label=False, container=False,
+                                   elem_id="kt-mod", min_width=180)
+                    kullanici_md = gr.Markdown(elem_classes="kt-kullanici")
+                    cikis = gr.Button("Çıkış", size="sm", min_width=80)
+            with gr.Tabs(selected="analiz") as ust:
+                with gr.Tab("Analiz", id="analiz"):
+                    with gr.Row(equal_height=False):
+                        with gr.Column(scale=3, min_width=280):
+                            ses = gr.File(label="Ses dosyası (WAV, MP3, FLAC)", type="filepath", height=200)
+                        with gr.Column(scale=2, min_width=260):
+                            sunucu = gr.Textbox(label="Sunucudaki ses yolu (isteğe bağlı)", visible=izinli is not None,
+                                                placeholder="Hafta2/ornek_ses/kayit.wav",
+                                                info="İzinli klasöre göre yol; doluysa yüklenen dosya yerine kullanılır.")
+                            with gr.Accordion("Gelişmiş ayarlar", open=False):
+                                yontem = gr.Radio(choices=list(YONTEMLER), value=ana.VARSAYILAN_YONTEM, label="Yöntem")
+                                konusmaci = gr.Number(value=0, precision=0, minimum=0,
+                                                      label="Konuşmacı sayısı (0 = otomatik)")
+                                esik = gr.Number(value=0, minimum=0, step=0.01,
+                                                 label=f"Eşik (0 = otomatik: {esik_ipucu})")
+                                ref = gr.File(label="Referans RTTM (isteğe bağlı)", type="filepath")
+                            dugme = gr.Button("Analiz et", variant="primary", size="lg", elem_id="kt-analiz")
+                            gr.Markdown(YUKLEME_NOTU, elem_classes="kt-not")
+                    uyari = gr.HTML()
+                    with gr.Column(elem_classes=[GIZLI_SINIF]) as sonuc_alani:
+                        ozet = gr.HTML()
+                        kartlar = gr.HTML()
+                        oynatici = gr.Audio(label="Ses", type="filepath", interactive=False)
+                        cizelge = gr.Plot(label="Konuşmacı zaman çizelgesi")
+                        with gr.Tabs():
+                            with gr.Tab("Konuşmacı süreleri"):
+                                gr.Markdown("Konuşmacılara ad vermek için **Ad** hücresini düzenleyin; ad tüm "
+                                            "tablolara, çizelgeye, indirilen dosyalara ve geçmişe yansır.",
+                                            elem_classes="kt-not")
+                                sure_df = gr.Dataframe(value=bos_sure, interactive=True, static_columns=[0, 2, 3])
+                            with gr.Tab("Segmentler"):
+                                with gr.Row(equal_height=True):
+                                    onceki = gr.Button("◀ Önceki", size="sm", min_width=100, scale=0)
+                                    segment_ses = gr.Audio(label="Seçilen segment", type="numpy", interactive=False,
+                                                           autoplay=True, scale=3)
+                                    segment_bilgi = gr.Markdown()
+                                    sonraki = gr.Button("Sonraki ▶", size="sm", min_width=100, scale=0)
+                                gr.Markdown("Bir segmenti dinlemek için satırdaki ▶ hücresini (ya da satırın herhangi "
+                                            "bir hücresini) seçin; seçili segment çizelgede sarı bantla gösterilir.",
+                                            elem_classes="kt-not")
+                                segment_df = gr.Dataframe(value=bos_seg, interactive=False, max_height=420)
+                        with gr.Column(elem_classes=[GIZLI_SINIF]) as gelismis_alani:
+                            with gr.Tabs():
+                                with gr.Tab("Değişim noktaları"):
+                                    degisimler = gr.HTML()
+                                with gr.Tab("Doğruluk"):
+                                    bilesenler = gr.HTML()
+                                    dogruluk = gr.Markdown()
+                                    hata_cizelgesi = gr.Plot(label="Hata bölgeleri (collar'sız)")
+                                    eslesmeler = gr.HTML()
+                                with gr.Tab("Hat ayrıntıları"):
+                                    asamalar = gr.HTML()
+                                    benzerlik = gr.Plot(label="Konuşmacı gömmeleri: kosinüs benzerliği")
+                                with gr.Tab("RTTM"):
+                                    rttm_metni = gr.Code(label="RTTM", interactive=False)
+                        with gr.Row(elem_classes=[GIZLI_SINIF]) as indir_satir:
+                            indir_rttm = gr.DownloadButton("RTTM indir")
+                            indir_csv = gr.DownloadButton("CSV indir (segmentler)")
+                            indir_json = gr.DownloadButton("JSON indir (tüm sonuç)")
+                with gr.Tab("Geçmiş", id="gecmis") as sk_gecmis:
+                    if app.gecmis_kok is None:
+                        gr.Markdown("Geçmiş kapalı (KT_GECMIS_DIZIN tanımlı değil).", elem_classes="kt-not")
+                    gr.Markdown("Yalnızca kendi analizleriniz listelenir. Bir kayıt seçip **Aç** ile sonuç ekranını "
+                                "yeniden hesaplamadan açın; **Sil** kaydı kalıcı olarak siler.", elem_classes="kt-not")
+                    gecmis_df = gr.Dataframe(headers=GECMIS_SUTUNLARI, interactive=False, max_height=420)
+                    with gr.Row():
+                        yenile = gr.Button("Yenile")
+                        ac = gr.Button("Aç", variant="primary")
+                        sil = gr.Button("Sil", variant="stop")
+                    gecmis_notu = gr.Markdown()
+                with gr.Tab("Hakkında", id="hakkinda"):
+                    gr.HTML(HAKKINDA_HTML)
+
+        # --- Çıktı grupları -----------------------------------------------------------------
+        ekran = [giris_ekrani, uygulama_ekrani, giris_notu, kullanici_md, oturum]
+        icerik = [ozet, kartlar, cizelge, sure_df, segment_df, degisimler, dogruluk, bilesenler, eslesmeler,
+                  hata_cizelgesi, asamalar, benzerlik, rttm_metni, gelismis_alani, segment_ses, segment_bilgi,
+                  secili_seg]
+        indirme_dugmeleri = [indir_satir, indir_rttm, indir_csv, indir_json]
+        sabit = [sonuc_alani, oynatici, *indirme_dugmeleri]
+
+        def giris_goster(mesaj=""):
+            return (sutun(True), sutun(False), mesaj, "", None)
+
+        def ayni():
+            return (gr.skip(),) * len(ekran)
+
+        def yetkisiz(n: int):
+            return (*giris_goster("Oturum geçersiz veya süresi doldu; lütfen yeniden giriş yapın."),
+                    *([gr.skip()] * n))
+
+        def uygulama_goster(anahtar, k):
+            return (sutun(False), sutun(True), "", f"👤 **{html.escape(k['ad'])}**", anahtar)
+
+        def icerik_degerleri(veri, mod_):
             if not veri:
-                return (gr.Column(visible=False), "", "", None, None, "", bos_df, "", gr.Tab(visible=False),
-                        gr.Tab(visible=False), "", "", None, "", gr.Tab(visible=False), "", None,
-                        gr.Tab(visible=False), "", gr.DownloadButton(visible=False), None, "")
+                return ("", "", None, bos_sure, bos_seg, "", "", "", "", None, "", None, "",
+                        sutun(False), None, "", None)
             g = gorunum_verisi(veri, mod_)
-            ileri, rv = g["gelismis"], g["referans_var"]
-            return (gr.Column(visible=True), g["ozet"], g["kartlar"], g["ses_yolu"], g["cizelge"], g["sureler"],
-                    g["segmentler"], g["degisimler"], gr.Tab(visible=ileri), gr.Tab(visible=ileri and rv),
-                    g["bilesenler"], g["dogruluk"], g["hata_cizelgesi"], g["eslesmeler"], gr.Tab(visible=ileri),
-                    g["asamalar"], g["benzerlik"], gr.Tab(visible=ileri), g["rttm_metni"],
-                    gr.DownloadButton(value=g["rttm_yolu"], visible=bool(g["rttm_yolu"])), None, "")
+            return (g["ozet_html"], g["kartlar"], g["cizelge"], g["sure_tablosu"], g["segmentler"], g["degisimler"],
+                    g["dogruluk"], g["bilesenler"], g["eslesmeler"], g["hata_cizelgesi"], g["asamalar"],
+                    g["benzerlik"], g["rttm_metni"], sutun(g["gelismis"]), None, "", None)
 
-        def calistir(ses_yolu, sunucu_yolu, yontem_, konusmaci_, esik_, ref_, mod_, progress=gr.Progress()):
-            progress(0, desc="Analiz ediliyor…")
-            veri, ses_bilgi, u = analiz_et(ses_yolu, yontem_, konusmaci_, esik_, ref_, sunucu_yolu, hat=hat,
-                                           gecmis_kok=gecmis_kok)
-            return (u, veri, ses_bilgi, *guncelle(veri, mod_))
+        def indirmeler(veri):
+            if not veri:
+                return (satir(False), *(gr.DownloadButton(value=None) for _ in range(3)))
+            return (satir(True), *(gr.DownloadButton(value=y) for y in indirme_dosyalari(veri)))
 
-        def segment_cal(veri, ses_bilgi, evt: gr.SelectData):
-            satir = evt.index[0] if isinstance(evt.index, (list, tuple)) else evt.index
-            oyna, ses_bilgi, notu = segment_secimi(veri, ses_bilgi, satir)
-            return oyna, ses_bilgi, notu
+        def sabit_degerler(veri):
+            if not veri:
+                return (sutun(False), None, *indirmeler(None))
+            return (sutun(True), veri.get("oynat_yolu"), *indirmeler(veri))
 
-        def gecmis_sec(evt: gr.SelectData):
+        # --- İşleyiciler (hepsi önce oturumu doğrular) ------------------------------------
+        def acilis(anahtar):
+            k = app.depo.kullanici(anahtar)
+            return uygulama_goster(anahtar, k) if k else ayni()  # oturum yoksa ekran zaten giriş
+
+        def giris_yap(eposta, sifre):
+            try:
+                anahtar, k = app.giris(eposta, sifre)
+            except hesap.HesapHatasi as h:
+                return (*giris_goster(f"⚠️ {h}"), gr.skip())
+            return (*uygulama_goster(anahtar, k), "")
+
+        def kayit_ol(ad, eposta, sifre, tekrar):
+            try:
+                anahtar, k = app.kayit(ad, eposta, sifre, tekrar)
+            except hesap.HesapHatasi as h:
+                return (*ayni(), f"⚠️ {h}", gr.skip(), gr.skip())
+            return (*uygulama_goster(anahtar, k), "", "", "")
+
+        def cikis_yap(anahtar):
+            app.cikis(anahtar)
+            return (*giris_goster("Çıkış yapıldı."), None, None, "", *sabit_degerler(None),
+                    *icerik_degerleri(None, MODLAR[0]), [], None, "")
+
+        def calistir(anahtar, ses_yolu, sunucu_yolu, yontem_, konusmaci_, esik_, ref_, mod_, progress=gr.Progress()):
+            try:
+                app.kullanici(anahtar)
+                progress(0, desc="Analiz ediliyor…")
+                veri, ses_bilgi, u = app.analiz(anahtar, ses_yolu, sunucu_yolu, yontem_, konusmaci_, esik_, ref_)
+            except OturumGecersiz:
+                return yetkisiz(3 + len(sabit) + len(icerik))
+            return (*ayni(), u, veri, ses_bilgi, *sabit_degerler(veri), *icerik_degerleri(veri, mod_))
+
+        def mod_degisti(anahtar, veri, mod_):
+            try:
+                app.kullanici(anahtar)
+            except OturumGecersiz:
+                return yetkisiz(len(icerik))
+            return (*ayni(), *icerik_degerleri(veri, mod_))
+
+        def segment_goster(anahtar, veri, ses_bilgi, mod_, satir):
+            oyna, ses_bilgi, notu = app.segment(anahtar, veri, ses_bilgi, satir)
+            if not veri or satir is None or not 0 <= satir < len(veri["segmentler"]):
+                return (*ayni(), None, notu, ses_bilgi, None, gr.skip())
+            a, b, _ = veri["segmentler"][satir]
+            bilgi = segment_bilgisi(veri, satir, mod_) + (f"\n\n{notu}" if oyna is None and notu else "")
+            return (*ayni(), oyna, bilgi, ses_bilgi, satir, cizelge_olustur(veri, mod_, vurgu=(a, b)))
+
+        def segment_sec(anahtar, veri, ses_bilgi, mod_, evt: gr.SelectData):
+            try:
+                app.kullanici(anahtar)
+                satir = evt.index[0] if isinstance(evt.index, (list, tuple)) else evt.index
+                return segment_goster(anahtar, veri, ses_bilgi, mod_, int(satir))
+            except OturumGecersiz:
+                return yetkisiz(5)
+
+        def segment_kaydir(adim: int):
+            def kaydir(anahtar, veri, ses_bilgi, mod_, secili):
+                try:
+                    app.kullanici(anahtar)
+                    if not veri or not veri["segmentler"]:
+                        return (*ayni(), *([gr.skip()] * 5))
+                    n = len(veri["segmentler"])
+                    satir = 0 if secili is None else min(max(int(secili) + adim, 0), n - 1)
+                    return segment_goster(anahtar, veri, ses_bilgi, mod_, satir)
+                except OturumGecersiz:
+                    return yetkisiz(5)
+
+            kaydir.__name__ = "segment_onceki" if adim < 0 else "segment_sonraki"
+            return kaydir
+
+        def adlandir(anahtar, veri, tablo, mod_):
+            try:
+                app.kullanici(anahtar)
+                if not veri:
+                    return (*ayni(), *([gr.skip()] * (2 + len(indirme_dugmeleri) + len(icerik))))
+                yeni = app.adlandir(anahtar, veri, tablo)
+            except OturumGecersiz:
+                return yetkisiz(2 + len(indirme_dugmeleri) + len(icerik))
+            return (*ayni(), yeni, "", *indirmeler(yeni), *icerik_degerleri(yeni, mod_))
+
+        def indirme_dogrula(anahtar):
+            try:
+                app.kullanici(anahtar)
+            except OturumGecersiz:
+                return (*giris_goster("Oturum geçersiz veya süresi doldu; lütfen yeniden giriş yapın."),
+                        *indirmeler(None))
+            return (*ayni(), *([gr.skip()] * len(indirme_dugmeleri)))
+
+        def gecmis_yenile(anahtar):
+            try:
+                return (*ayni(), app.gecmis_listesi(anahtar))
+            except OturumGecersiz:
+                return yetkisiz(1)
+
+        def gecmis_sec(anahtar, evt: gr.SelectData):
+            try:
+                app.kullanici(anahtar)
+            except OturumGecersiz:
+                return yetkisiz(2)
             ad = evt.row_value[-1] if evt.row_value else None
-            return ad, f"Seçili kayıt: {ad}" if ad else ""
+            return (*ayni(), ad, f"Seçili kayıt: {ad}" if ad else "")
 
-        def gecmis_ac(ad, mod_):
-            veri, ses_bilgi, u = gecmis_acilis(gecmis_kok, ad)
-            return (u, veri, ses_bilgi, *guncelle(veri, mod_), gr.Tabs(selected="analiz" if veri else "gecmis"))
+        def gecmis_ac(anahtar, ad, mod_):
+            try:
+                veri, ses_bilgi, u = app.gecmis_ac(anahtar, ad)
+            except OturumGecersiz:
+                return yetkisiz(3 + len(sabit) + len(icerik) + 1)
+            return (*ayni(), u, veri, ses_bilgi, *sabit_degerler(veri), *icerik_degerleri(veri, mod_),
+                    gr.Tabs(selected="analiz" if veri else "gecmis"))
 
-        dugme.click(calistir, inputs=[ses, sunucu, yontem, konusmaci, esik, ref, mod],
-                    outputs=[uyari, veri_d, ses_d, *gorunum], api_name="analiz", show_progress="full")
-        mod.change(guncelle, inputs=[veri_d, mod], outputs=gorunum, api_name=False)
-        segment_df.select(segment_cal, inputs=[veri_d, ses_d], outputs=[segment_ses, ses_d, segment_notu],
-                          api_name=False)
-        tablo_yenile = lambda: gecmis_tablosu(gecmis_kok)  # noqa: E731
-        sk_gecmis.select(tablo_yenile, outputs=gecmis_df, api_name=False)
-        yenile.click(tablo_yenile, outputs=gecmis_df, api_name=False)
-        gecmis_df.select(gecmis_sec, outputs=[secili, gecmis_notu], api_name=False)
-        ac.click(gecmis_ac, inputs=[secili, mod], outputs=[uyari, veri_d, ses_d, *gorunum, ust], api_name=False)
-        sil.click(lambda ad: gecmis_silme(gecmis_kok, ad), inputs=secili, outputs=[gecmis_df, secili, gecmis_notu],
-                  api_name=False)
+        def gecmis_sil(anahtar, ad):
+            try:
+                return (*ayni(), *app.gecmis_sil(anahtar, ad))
+            except OturumGecersiz:
+                return yetkisiz(3)
+
+        # --- Olaylar (hepsi API'ye kapalı) -------------------------------------------------
+        demo.load(acilis, inputs=oturum, outputs=ekran, api_visibility=gizli)
+        g_dugme.click(giris_yap, inputs=[g_eposta, g_sifre], outputs=[*ekran, g_sifre], api_visibility=gizli)
+        g_sifre.submit(giris_yap, inputs=[g_eposta, g_sifre], outputs=[*ekran, g_sifre], api_visibility=gizli)
+        k_dugme.click(kayit_ol, inputs=[k_ad, k_eposta, k_sifre, k_tekrar],
+                      outputs=[*ekran, kayit_notu, k_sifre, k_tekrar], api_visibility=gizli)
+        cikis.click(cikis_yap, inputs=oturum,
+                    outputs=[*ekran, veri_d, ses_d, uyari, *sabit, *icerik, gecmis_df, secili_kayit, gecmis_notu],
+                    api_visibility=gizli)
+        dugme.click(calistir, inputs=[oturum, ses, sunucu, yontem, konusmaci, esik, ref, mod],
+                    outputs=[*ekran, uyari, veri_d, ses_d, *sabit, *icerik], api_visibility=gizli,
+                    show_progress="full")
+        mod.change(mod_degisti, inputs=[oturum, veri_d, mod], outputs=[*ekran, *icerik], api_visibility=gizli)
+        seg_cikti = [*ekran, segment_ses, segment_bilgi, ses_d, secili_seg, cizelge]
+        segment_df.select(segment_sec, inputs=[oturum, veri_d, ses_d, mod], outputs=seg_cikti, api_visibility=gizli)
+        onceki.click(segment_kaydir(-1), inputs=[oturum, veri_d, ses_d, mod, secili_seg], outputs=seg_cikti,
+                     api_visibility=gizli)
+        sonraki.click(segment_kaydir(+1), inputs=[oturum, veri_d, ses_d, mod, secili_seg], outputs=seg_cikti,
+                      api_visibility=gizli)
+        sure_df.input(adlandir, inputs=[oturum, veri_d, sure_df, mod],
+                      outputs=[*ekran, veri_d, uyari, *indirme_dugmeleri, *icerik], api_visibility=gizli)
+        for b in (indir_rttm, indir_csv, indir_json):
+            b.click(indirme_dogrula, inputs=oturum, outputs=[*ekran, *indirme_dugmeleri], api_visibility=gizli)
+        sk_gecmis.select(gecmis_yenile, inputs=oturum, outputs=[*ekran, gecmis_df], api_visibility=gizli)
+        yenile.click(gecmis_yenile, inputs=oturum, outputs=[*ekran, gecmis_df], api_visibility=gizli)
+        gecmis_df.select(gecmis_sec, inputs=oturum, outputs=[*ekran, secili_kayit, gecmis_notu], api_visibility=gizli)
+        ac.click(gecmis_ac, inputs=[oturum, secili_kayit, mod],
+                 outputs=[*ekran, uyari, veri_d, ses_d, *sabit, *icerik, ust], api_visibility=gizli)
+        sil.click(gecmis_sil, inputs=[oturum, secili_kayit], outputs=[*ekran, gecmis_df, secili_kayit, gecmis_notu],
+                  api_visibility=gizli)
+    demo.uygulama = app  # testler için
     return demo
