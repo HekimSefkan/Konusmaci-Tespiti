@@ -5,20 +5,23 @@ gradio yalnızca arayuz_olustur içinde import edilir; diğer fonksiyonlar gradi
 Modeller (ECAPA, Silero VAD) ilk istekte bir kez yüklenir ve süreç boyunca tutulur
 (oznitelik.ecapa_modeli, vad._silero_modeli); GPU varsa ECAPA onu kullanır.
 """
+import html
 import math
 import os
+import re
 import tempfile
 import time
 from dataclasses import dataclass
 
 from . import cikti, degerlendirme, gorsel, main as ana, ses_girdi, varsayilanlar
 
-BASLIK = "Ses Kayıtlarında Konuşmacı Değişimlerinin Tespiti — Grup_68"
+BASLIK = "Konuşmacı Değişimi Tespiti"
+SAYFA_BASLIGI = f"{BASLIK} — Grup_68"
 ACIKLAMA = (
-    "Bir ses kaydı yükleyin; sistem kimin ne zaman konuştuğunu bulur, konuşmacı değişim noktalarını "
-    "listeler ve sonucu RTTM dosyası olarak verir. Desteklenen biçimler: WAV, MP3, FLAC "
-    f"(en fazla {ses_girdi.MAKS_SURE_SN} sn). Referans RTTM verirseniz sonuç DER, JER ve değişim F1 ile ölçülür."
+    "Bir ses kaydı yükleyin; sistem kimin ne zaman konuştuğunu bulur ve konuşmacı değişim noktalarını "
+    f"listeler (WAV, MP3, FLAC; en fazla {ses_girdi.MAKS_SURE_SN // 60} dk)."
 )
+YUKLEME_NOTU = "İlk analizde modeller yüklenir, 1–2 dk sürebilir."
 METRIK_NOTU = (
     "**DER** (diarization error rate): yanlış alarm + kaçırılan konuşma + konuşmacı karışıklığı süresinin "
     "referans konuşma süresine oranı; düşük olan iyidir. **JER**: konuşmacı başına hata oranlarının "
@@ -50,21 +53,23 @@ def _bos_mu(x) -> bool:
 
 
 def girdileri_denetle(konusmaci_sayisi, esik) -> tuple[int | None, float | None]:
-    """Arayüzden gelen isteğe bağlı sayıları denetler; boş değer None olur.
+    """Arayüzden gelen isteğe bağlı sayıları denetler; boş değer veya 0 = otomatik (None).
 
-    Hata: ValueError (konuşmacı sayısı tam sayı ve >= 1 değil; eşik > 0 değil).
+    Konuşmacı sayısı None ise sayı eşikle bulunur; eşik None ise yöntemin varsayilanlar.json eşiği.
+    Hata: ValueError (konuşmacı sayısı negatif veya tam sayı değil; eşik negatif).
     """
     k = None
     if not _bos_mu(konusmaci_sayisi):
         k_f = float(konusmaci_sayisi)
-        if k_f != int(k_f) or k_f < 1:
-            raise ValueError(f"konuşmacı sayısı 1 veya daha büyük bir tam sayı olmalı (girilen: {konusmaci_sayisi})")
-        k = int(k_f)
+        if k_f != int(k_f) or k_f < 0:
+            raise ValueError(f"konuşmacı sayısı 0 (otomatik) veya pozitif bir tam sayı olmalı (girilen: {konusmaci_sayisi})")
+        k = int(k_f) or None
     e = None
     if not _bos_mu(esik):
         e = float(esik)
-        if not e > 0:
-            raise ValueError(f"eşik 0'dan büyük olmalı (girilen: {esik})")
+        if e < 0:
+            raise ValueError(f"eşik 0 (otomatik) veya pozitif olmalı (girilen: {esik})")
+        e = e or None
     return k, e
 
 
@@ -210,28 +215,22 @@ def ozet_metni(s: Sonuc) -> str:
             f"{len(cikti.degisim_noktalari(s.segmentler))} değişim noktası. İşlem süresi {s.islem_sn:.1f} sn.")
 
 
-CIKTI_SAYISI = 7  # durum, çizelge, segmentler, toplamlar, değişimler, RTTM, metrikler
+def _isle(ses_yolu, yontem, konusmaci_sayisi, esik, ref_rttm, sunucu_yolu=None, hat=None):
+    """Ortak işleyici: (Sonuc | None, hata Markdown, referans notu). İstisna fırlatmaz.
 
-
-def arayuz_cikti(ses_yolu, yontem, konusmaci_sayisi, esik, ref_rttm, sunucu_yolu=None, hat=None) -> tuple:
-    """Düğme işleyicisi: arayüzün yedi çıktısını döndürür, hiçbir zaman istisna fırlatmaz.
-
-    Sıra: (durum Markdown, çizelge PNG, segment tablosu, konuşmacı toplamları, değişim noktaları,
-    RTTM yolu, metrik Markdown). Hata olursa durumda hata_mesaji, diğerleri boş.
     sunucu_yolu doluysa yüklenen dosya yerine o kullanılır (ses_yolu_sec). Referans verilmemişse
-    otomatik_referans ile data/sample/ RTTM'i aranır; kullanılan referans sonuçta belirtilir.
+    otomatik_referans ile data/sample/ RTTM'i aranır; kullanılan referans notta belirtilir.
     """
-    bos = (None, [], [], [], None, "")
     try:
         ses_yolu = ses_yolu_sec(ses_yolu, sunucu_yolu)
     except (FileNotFoundError, ValueError) as hata:
-        return (hata_mesaji(str(sunucu_yolu).strip(), hata), *bos)
+        return None, hata_mesaji(str(sunucu_yolu).strip(), hata), ""
     if not ses_yolu:
-        return ("**Önce bir ses dosyası seçin** (WAV, MP3 veya FLAC) veya sunucudaki ses yolunu yazın.", *bos)
+        return None, "**Önce bir ses dosyası seçin** (WAV, MP3 veya FLAC) veya sunucudaki ses yolunu yazın.", ""
     try:
         k, e = girdileri_denetle(konusmaci_sayisi, esik)
     except ValueError as hata:
-        return (f"**Hata — ayarlar:** {hata}.", *bos)
+        return None, f"**Hata — ayarlar:** {hata}.", ""
     ref_notu = ""
     if ref_rttm:
         ref_notu = f"Referans: {os.path.basename(ref_rttm)} (yüklenen)"
@@ -240,10 +239,24 @@ def arayuz_cikti(ses_yolu, yontem, konusmaci_sayisi, esik, ref_rttm, sunucu_yolu
         if ref_rttm:
             ref_notu = f"Referans: {os.path.relpath(ref_rttm, KOK).replace(os.sep, '/')} (otomatik)"
     try:
-        s = analiz(ses_yolu, yontem or ana.VARSAYILAN_YONTEM, k, e, ref_rttm, hat=hat)
+        return analiz(ses_yolu, yontem or ana.VARSAYILAN_YONTEM, k, e, ref_rttm, hat=hat), "", ref_notu
     except Exception as hata:  # arayüz çökmesin; mesaj kullanıcıya
         dosya = ref_rttm if ref_rttm and "referans RTTM" in str(hata) else ses_yolu
-        return (hata_mesaji(dosya, hata), *bos)
+        return None, hata_mesaji(dosya, hata), ref_notu
+
+
+CIKTI_SAYISI = 7  # durum, çizelge, segmentler, toplamlar, değişimler, RTTM, metrikler
+
+
+def arayuz_cikti(ses_yolu, yontem, konusmaci_sayisi, esik, ref_rttm, sunucu_yolu=None, hat=None) -> tuple:
+    """Yedi düz çıktı (API ve testler için); hiçbir zaman istisna fırlatmaz.
+
+    Sıra: (durum Markdown, çizelge PNG, segment tablosu, konuşmacı toplamları, değişim noktaları,
+    RTTM yolu, metrik Markdown). Hata olursa durumda hata mesajı, diğerleri boş.
+    """
+    s, hata, ref_notu = _isle(ses_yolu, yontem, konusmaci_sayisi, esik, ref_rttm, sunucu_yolu, hat)
+    if s is None:
+        return (hata, None, [], [], [], None, "")
     metrik = metrik_metni(s.metrikler)
     durum = ozet_metni(s)
     if ref_notu:
@@ -253,36 +266,200 @@ def arayuz_cikti(ses_yolu, yontem, konusmaci_sayisi, esik, ref_rttm, sunucu_yolu
             degisim_tablosu(s.segmentler), s.rttm_yolu, metrik)
 
 
+# ---------------------------------------------------------------------------
+# Görünüm (HTML parçaları; gradio gerektirmez)
+# ---------------------------------------------------------------------------
+
+def _md_html(metin: str) -> str:
+    """Kısa Markdown'ı (yalnızca **kalın** ve satır sonu) güvenli HTML'e çevirir."""
+    h = html.escape(metin)
+    h = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", h)
+    return h.replace("\n\n", "<br>").replace("\n", "<br>")
+
+
+def uyari_html(mesaj: str) -> str:
+    """Kırmızı uyarı kutusu (hata mesajı); mesaj boşsa boş dize."""
+    if not mesaj:
+        return ""
+    return f'<div class="kt-uyari kt-hata" role="alert">{_md_html(mesaj)}</div>'
+
+
+def _sure_yaz(sn: float) -> str:
+    """Okunur süre: 59,4 sn / 12 dk 05 sn."""
+    if sn < 60:
+        return f"{sn:.1f} sn".replace(".", ",")
+    dk, kalan = divmod(int(round(sn)), 60)
+    return f"{dk} dk {kalan:02d} sn"
+
+
+def kartlar_html(s: Sonuc, ref_notu: str = "") -> str:
+    """Özet kartları: konuşmacı sayısı, ses süresi, değişim noktası sayısı, işlem süresi."""
+    kartlar = [
+        (len({e for *_, e in s.segmentler}), "konuşmacı"),
+        (_sure_yaz(s.ses_sn), "ses süresi"),
+        (len(cikti.degisim_noktalari(s.segmentler)), "değişim noktası"),
+        (_sure_yaz(s.islem_sn), "işlem süresi"),
+    ]
+    govde = "".join(f'<div class="kt-kart"><div class="kt-deger">{html.escape(str(d))}</div>'
+                    f'<div class="kt-etiket">{e}</div></div>' for d, e in kartlar)
+    alt = html.escape(s.dosya_id) + (f" · {html.escape(ref_notu)}" if ref_notu else "")
+    if not s.segmentler:
+        alt += " · konuşma bulunamadı"
+    return f'<div class="kt-dosya">{alt}</div><div class="kt-kartlar">{govde}</div>'
+
+
+def _nokta(etiket: str, renkler: dict) -> str:
+    return (f'<span class="kt-konusmaci"><span class="kt-nokta" style="background:{renkler.get(etiket, "#888")}">'
+            f'</span>{html.escape(etiket)}</span>')
+
+
+def _tablo(basliklar, satirlar, bos_metin: str) -> str:
+    if not satirlar:
+        return f'<div class="kt-bos">{bos_metin}</div>'
+    bas = "".join(f"<th>{b}</th>" for b in basliklar)
+    govde = "".join("<tr>" + "".join(f"<td>{h}</td>" for h in s) + "</tr>" for s in satirlar)
+    return f'<div class="kt-tablo"><table><thead><tr>{bas}</tr></thead><tbody>{govde}</tbody></table></div>'
+
+
+def segment_html(segmentler) -> str:
+    """Segment tablosu; konuşmacı renkleri zaman çizelgesiyle aynı (gorsel.renk_haritasi)."""
+    renk = gorsel.renk_haritasi(e for *_, e in segmentler)
+    satirlar = [[_nokta(e, renk), cikti._zaman(a), cikti._zaman(b), f"{b - a:.2f} sn".replace(".", ",")]
+                for a, b, e in segmentler]
+    return _tablo(["Konuşmacı", "Başlangıç", "Bitiş", "Süre"], satirlar, "Konuşma bulunamadı.")
+
+
+def sure_html(segmentler) -> str:
+    """Konuşmacı başına toplam süre, yüzde ve renkli çubuk."""
+    renk = gorsel.renk_haritasi(e for *_, e in segmentler)
+    satirlar = [[_nokta(e, renk), _sure_yaz(s), f"%{y:.1f}".replace(".", ","),
+                 f'<div class="kt-cubuk" style="width:{y:.1f}%;background:{renk[e]}"></div>']
+                for e, s, y in konusmaci_toplamlari(segmentler)]
+    return _tablo(["Konuşmacı", "Toplam", "Pay", ""], satirlar, "Konuşma bulunamadı.")
+
+
+def degisim_ciftleri(segmentler) -> list[tuple[float, str, str]]:
+    """[(zaman sn, önceki konuşmacı, yeni konuşmacı)]; zamanlar cikti.degisim_noktalari ile aynı."""
+    nov = cikti.tek_konusmaci_segmentleri([(cikti._ms(a), cikti._ms(b), e) for a, b, e in segmentler])
+    return [(nov[i][0] / 1000, nov[i - 1][2], nov[i][2]) for i in range(1, len(nov))]
+
+
+def degisim_html(segmentler) -> str:
+    """Değişim noktaları: sıra, zaman, önceki → yeni konuşmacı."""
+    renk = gorsel.renk_haritasi(e for *_, e in segmentler)
+    satirlar = [[i, cikti._zaman(t), f"{_nokta(a, renk)} → {_nokta(b, renk)}"]
+                for i, (t, a, b) in enumerate(degisim_ciftleri(segmentler), 1)]
+    return _tablo(["#", "Zaman", "Değişim"], satirlar, "Değişim noktası yok.")
+
+
+def dogruluk_metni(s: Sonuc, ref_notu: str = "") -> str:
+    """Doğruluk sekmesi (Markdown); referans yoksa boş dize."""
+    if not s.metrikler:
+        return ""
+    return f"{ref_notu}\n\n{metrik_metni(s.metrikler)}\n\n{METRIK_NOTU}".strip()
+
+
+GORUNUM_SAYISI = 8  # uyarı, kartlar, çizelge, segmentler, süreler, değişimler, doğruluk, RTTM
+
+
+def gorunum_cikti(ses_yolu, yontem, konusmaci_sayisi, esik, ref_rttm, sunucu_yolu=None, hat=None) -> tuple:
+    """Arayüz düğmesinin sekiz çıktısı; hiçbir zaman istisna fırlatmaz.
+
+    Sıra: (uyarı HTML, kartlar HTML, çizelge PNG, segment HTML, süre HTML, değişim HTML,
+    doğruluk Markdown, RTTM yolu). Hata olursa yalnızca uyarı dolu; doğruluk referans yoksa boş.
+    """
+    s, hata, ref_notu = _isle(ses_yolu, yontem, konusmaci_sayisi, esik, ref_rttm, sunucu_yolu, hat)
+    if s is None:
+        return (uyari_html(hata), "", None, "", "", "", "", None)
+    return ("", kartlar_html(s, ref_notu), s.png_yolu, segment_html(s.segmentler), sure_html(s.segmentler),
+            degisim_html(s.segmentler), dogruluk_metni(s, ref_notu), s.rttm_yolu)
+
+
+CSS = """
+.kt-ust h1 {margin: 0 0 4px; font-size: 1.9rem;}
+.kt-ust p {margin: 0; color: var(--body-text-color-subdued);}
+.kt-not {font-size: .85rem; color: var(--body-text-color-subdued);}
+#kt-analiz {min-height: 52px; font-size: 1.1rem;}
+.kt-uyari {border-radius: 10px; padding: 12px 14px; margin: 4px 0;}
+.kt-hata {background: #fef2f2; border: 1px solid #fca5a5; color: #991b1b;}
+.dark .kt-hata {background: #450a0a; border-color: #7f1d1d; color: #fecaca;}
+.kt-dosya {font-size: .9rem; color: var(--body-text-color-subdued); margin: 2px 0 8px; word-break: break-all;}
+.kt-kartlar {display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px;}
+.kt-kart {background: var(--block-background-fill); border: 1px solid var(--border-color-primary);
+          border-radius: 12px; padding: 14px 16px;}
+.kt-deger {font-size: 1.7rem; font-weight: 700; color: var(--color-accent); line-height: 1.15;}
+.kt-etiket {font-size: .85rem; color: var(--body-text-color-subdued); margin-top: 2px;}
+.kt-tablo {max-height: 420px; overflow: auto;}
+.kt-tablo table {width: 100%; border-collapse: collapse; font-size: .92rem;}
+.kt-tablo th, .kt-tablo td {padding: 6px 10px; border-bottom: 1px solid var(--border-color-primary); text-align: left;}
+.kt-tablo th {position: sticky; top: 0; background: var(--background-fill-secondary);}
+.kt-konusmaci {white-space: nowrap;}
+.kt-nokta {display: inline-block; width: .8em; height: .8em; border-radius: 50%; margin-right: 6px; vertical-align: middle;}
+.kt-cubuk {height: 8px; border-radius: 4px; min-width: 2px;}
+.kt-bos {padding: 12px; color: var(--body-text-color-subdued);}
+@media (max-width: 640px) {.kt-ust h1 {font-size: 1.5rem;} .kt-deger {font-size: 1.35rem;}
+                           .kt-tablo th, .kt-tablo td {padding: 5px 6px;}}
+"""
+
+
+def tema():
+    """Arayüz teması (gradio 6'da launch(theme=...) ile verilir)."""
+    import gradio as gr
+
+    return gr.themes.Soft(primary_hue="indigo", secondary_hue="sky", neutral_hue="slate",
+                          font=["system-ui", "-apple-system", "Segoe UI", "Roboto", "sans-serif"])
+
+
 def arayuz_olustur(hat=None):
-    """Gradio Blocks arayüzünü kurar (başlatmaz). hat: testler için sahte hat."""
+    """Gradio Blocks arayüzünü kurar (başlatmaz; tema ve CSS: launch(theme=tema(), css=CSS)).
+
+    hat: testler için sahte hat.
+    """
     import gradio as gr
 
     esik_ipucu = ", ".join(f"{y} {varsayilanlar.esik(y)}" for y in varsayilanlar.YONTEMLER)
-    with gr.Blocks(title=BASLIK) as demo:
-        gr.Markdown(f"# {BASLIK}\n{ACIKLAMA}")
-        with gr.Row():
-            with gr.Column():
-                ses = gr.File(label="Ses dosyası (WAV, MP3, FLAC)", type="filepath")
-                sunucu = gr.Textbox(label="Sunucudaki ses yolu (isteğe bağlı; doluysa yüklenen dosya yerine kullanılır)",
-                                    placeholder="/content/drive/MyDrive/.../kayit.wav")
-                yontem = gr.Radio(choices=list(YONTEMLER), value=ana.VARSAYILAN_YONTEM, label="Yöntem")
-                konusmaci = gr.Number(value=None, precision=0, label="Konuşmacı sayısı (boş = otomatik)")
-                esik = gr.Number(value=None, label=f"Eşik (boş = varsayılan: {esik_ipucu})")
-                ref = gr.File(label="Referans RTTM (isteğe bağlı)", type="filepath")
-                dugme = gr.Button("Analiz et", variant="primary")
-                gr.Markdown(METRIK_NOTU)
-            with gr.Column():
-                durum = gr.Markdown()
-                cizelge = gr.Image(label="Konuşmacı zaman çizelgesi", type="filepath")
-                metrik = gr.Markdown()
-                rttm = gr.File(label="RTTM (indir)")
-        segment = gr.Dataframe(headers=["Konuşmacı", "Başlangıç (sn)", "Bitiş (sn)", "Süre (sn)"],
-                               label="Segmentler", interactive=False)
-        with gr.Row():
-            toplam = gr.Dataframe(headers=["Konuşmacı", "Toplam (sn)", "Yüzde"],
-                                  label="Konuşmacı başına toplam süre", interactive=False)
-            degisim = gr.Dataframe(headers=["#", "Zaman (sn)", "dk:ss.ms"],
-                                   label="Değişim noktaları", interactive=False)
-        dugme.click(lambda *g: arayuz_cikti(*g, hat=hat), inputs=[ses, yontem, konusmaci, esik, ref, sunucu],
-                    outputs=[durum, cizelge, segment, toplam, degisim, rttm, metrik], api_name="analiz")
+    with gr.Blocks(title=SAYFA_BASLIGI) as demo:
+        gr.HTML(f'<div class="kt-ust"><h1>{BASLIK}</h1><p>{html.escape(ACIKLAMA)}</p></div>')
+        with gr.Row(equal_height=False):
+            with gr.Column(scale=3, min_width=280):
+                ses = gr.File(label="Ses dosyası (WAV, MP3, FLAC)", type="filepath", height=200)
+            with gr.Column(scale=2, min_width=260):
+                sunucu = gr.Textbox(label="Sunucudaki ses yolu (isteğe bağlı)",
+                                    placeholder="/content/drive/MyDrive/.../kayit.wav",
+                                    info="Doluysa yüklenen dosya yerine bu yol kullanılır.")
+                with gr.Accordion("Gelişmiş ayarlar", open=False):
+                    yontem = gr.Radio(choices=list(YONTEMLER), value=ana.VARSAYILAN_YONTEM, label="Yöntem")
+                    konusmaci = gr.Number(value=0, precision=0, minimum=0,
+                                          label="Konuşmacı sayısı (0 = otomatik)")
+                    esik = gr.Number(value=0, minimum=0, step=0.01,
+                                     label=f"Eşik (0 = otomatik: {esik_ipucu})")
+                    ref = gr.File(label="Referans RTTM (isteğe bağlı)", type="filepath")
+                dugme = gr.Button("Analiz et", variant="primary", size="lg", elem_id="kt-analiz")
+                gr.Markdown(YUKLEME_NOTU, elem_classes="kt-not")
+        uyari = gr.HTML()
+        kartlar = gr.HTML()
+        cizelge = gr.Image(label="Konuşmacı zaman çizelgesi", type="filepath", interactive=False)
+        with gr.Tabs():
+            with gr.Tab("Segmentler"):
+                segment = gr.HTML()
+            with gr.Tab("Konuşmacı süreleri"):
+                sure = gr.HTML()
+            with gr.Tab("Değişim noktaları"):
+                degisim = gr.HTML()
+            with gr.Tab("Doğruluk", visible=False) as dogruluk_sekme:
+                dogruluk = gr.Markdown()
+        indir = gr.DownloadButton("RTTM indir", visible=False)
+
+        def calistir(ses_yolu, sunucu_yolu, yontem_, konusmaci_, esik_, ref_, progress=gr.Progress()):
+            progress(0, desc="Analiz ediliyor…")
+            u, k, png, seg, sur, deg, dog, rttm = gorunum_cikti(ses_yolu, yontem_, konusmaci_, esik_, ref_,
+                                                                 sunucu_yolu, hat=hat)
+            return (u, k, png, seg, sur, deg, dog, gr.Tab(visible=bool(dog)),
+                    gr.DownloadButton(value=rttm, visible=bool(rttm)))
+
+        dugme.click(calistir, inputs=[ses, sunucu, yontem, konusmaci, esik, ref],
+                    outputs=[uyari, kartlar, cizelge, segment, sure, degisim, dogruluk, dogruluk_sekme, indir],
+                    api_name="analiz", show_progress="full")
     return demo
+
+

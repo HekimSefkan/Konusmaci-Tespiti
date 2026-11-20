@@ -39,7 +39,7 @@ Varsayılan yöntem **ECAPA**'dır (Hafta 4'te VoxConverse dev değerlendirme ya
 
 ## Arayüzü çalıştırma
 
-Gradio web arayüzü ses dosyasını (WAV, MP3, FLAC; en fazla 1800 sn) hattan geçirir ve şunları gösterir: renkli konuşmacı zaman çizelgesi, segment tablosu, konuşmacı başına toplam süre, değişim noktaları, indirilebilir RTTM ve işlem süresi. Referans RTTM verilirse DER, JER ve değişim F1 de hesaplanır (±0,25 sn collar, örtüşme dahil). Yöntem (ECAPA varsayılan, MFCC), konuşmacı sayısı ve eşik isteğe bağlıdır; eşik boşsa `src/varsayilanlar.json` kullanılır. "Sunucudaki ses yolu" doluysa yüklenen dosya yerine o yol okunur (ör. Colab'da Drive'daki `Hafta2/ornek_ses/...wav`). Referans verilmezse ses dosyasının adıyla aynı adlı RTTM `data/sample/` veya `data/sample/edge/` içinde varsa otomatik referans alınır ve sonuçta "(otomatik)" diye belirtilir.
+Gradio web arayüzü ses dosyasını (WAV, MP3, FLAC; en fazla 1800 sn) hattan geçirir ve şunları gösterir: renkli konuşmacı zaman çizelgesi, segment tablosu, konuşmacı başına toplam süre, değişim noktaları, indirilebilir RTTM ve işlem süresi. Referans RTTM verilirse DER, JER ve değişim F1 de hesaplanır (±0,25 sn collar, örtüşme dahil). Yöntem (ECAPA varsayılan, MFCC), konuşmacı sayısı, eşik ve referans RTTM "Gelişmiş ayarlar" bölümündedir; konuşmacı sayısı ve eşik için 0 = otomatik (sayı eşikle bulunur, eşik `src/varsayilanlar.json`'dan). "Sunucudaki ses yolu" doluysa yüklenen dosya yerine o yol okunur (ör. Colab'da Drive'daki `Hafta2/ornek_ses/...wav`). Referans verilmezse ses dosyasının adıyla aynı adlı RTTM `data/sample/` veya `data/sample/edge/` içinde varsa otomatik referans alınır ve sonuçta "(otomatik)" diye belirtilir.
 
 ```bash
 python app.py

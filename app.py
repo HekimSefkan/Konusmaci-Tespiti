@@ -14,9 +14,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--port", type=int, default=7860, help="port (varsayılan 7860)")
     a = ap.parse_args(argv)
 
-    from src.arayuz import arayuz_olustur
+    from src.arayuz import CSS, arayuz_olustur, tema
 
-    arayuz_olustur().queue().launch(server_name=a.host, server_port=a.port, share=a.share)
+    arayuz_olustur().queue().launch(server_name=a.host, server_port=a.port, share=a.share, theme=tema(), css=CSS)
     return 0
 
 

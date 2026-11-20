@@ -34,13 +34,20 @@ def test_tablolar():
 
 @pytest.mark.parametrize("k,e,beklenen", [
     (None, None, (None, None)), ("", "", (None, None)), (float("nan"), None, (None, None)),
-    (3, 0.7, (3, 0.7)), (2.0, "0.5", (2, 0.5)),
+    (0, 0, (None, None)), (0.0, 0.0, (None, None)), ("0", "0", (None, None)),  # 0 = otomatik
+    (3, 0.7, (3, 0.7)), (2.0, "0.5", (2, 0.5)), (0, 0.6, (None, 0.6)), (4, 0, (4, None)),
 ])
 def test_girdileri_denetle(k, e, beklenen):
     assert arayuz.girdileri_denetle(k, e) == beklenen
 
 
-@pytest.mark.parametrize("k,e", [(0, None), (1.5, None), (-2, None), (None, 0), (None, -0.1)])
+def test_sifir_otomatik_hatta_none_gider(tmp_path):
+    pytest.importorskip("matplotlib")
+    durum, *_ = arayuz.arayuz_cikti(_dosya(tmp_path, "kayit.wav"), "ecapa", 0, 0, None, hat=sahte_hat)
+    assert sahte_hat.cagri[2:] == (None, None) and "Hata" not in durum
+
+
+@pytest.mark.parametrize("k,e", [(1.5, None), (-2, None), (None, -0.1)])
 def test_girdileri_denetle_hata(k, e):
     with pytest.raises(ValueError):
         arayuz.girdileri_denetle(k, e)
@@ -105,7 +112,7 @@ def test_bozuk_referans_mesaji(tmp_path):
 
 
 def test_ayar_hatasi_mesaji(tmp_path):
-    durum, *_ = arayuz.arayuz_cikti(_dosya(tmp_path, "kayit.wav"), "ecapa", 0, None, None, hat=sahte_hat)
+    durum, *_ = arayuz.arayuz_cikti(_dosya(tmp_path, "kayit.wav"), "ecapa", -1, None, None, hat=sahte_hat)
     assert "ayarlar" in durum and "konuşmacı sayısı" in durum
 
 
@@ -181,7 +188,67 @@ def test_yuklenen_referans_otomatigi_ezer(tmp_path):
     assert "benim.rttm (yüklenen)" in metrik and "otomatik" not in metrik and "%0.0" in metrik
 
 
+def test_renkler_cizelgeyle_ayni():
+    mpl = pytest.importorskip("matplotlib")
+    from matplotlib.colors import to_hex
+
+    for n, ad in ((3, "tab10"), (12, "tab20")):
+        etiketler = [f"spk{i:02d}" for i in range(n)]
+        harita = mpl.colormaps[ad]
+        assert list(gorsel_renk(etiketler).values()) == [to_hex(harita(i)) for i in range(n)]
+    # tablo HTML'i aynı rengi kullanır
+    assert gorsel_renk(["spk00", "spk01"])["spk01"] in arayuz.segment_html(SEGMENTLER)
+
+
+def gorsel_renk(etiketler):
+    from src import gorsel
+
+    return gorsel.renk_haritasi(etiketler)
+
+
+def test_degisim_ciftleri_zamanlarla_ayni():
+    ciftler = arayuz.degisim_ciftleri(SEGMENTLER)
+    assert ciftler == [(2.0, "spk00", "spk01"), (4.0, "spk01", "spk00")]
+    assert [t for t, *_ in ciftler] == cikti.degisim_noktalari(SEGMENTLER)
+
+
+def test_html_parcalari():
+    seg = arayuz.segment_html(SEGMENTLER)
+    assert seg.count("<tr>") == 4 and "00:02.000" in seg and "1,50 sn" in seg
+    sure = arayuz.sure_html(SEGMENTLER)
+    assert "%66,7" in sure and "3,0 sn" in sure
+    deg = arayuz.degisim_html(SEGMENTLER)
+    assert deg.count("<tr>") == 3 and "→" in deg
+    assert "Konuşma bulunamadı" in arayuz.segment_html([]) and "Değişim noktası yok" in arayuz.degisim_html([])
+    assert arayuz.uyari_html("") == ""
+    u = arayuz.uyari_html("**Hata — a<b>.wav:** bozuk.\n\nAyrıntı: x")
+    assert 'role="alert"' in u and "<strong>" in u and "a&lt;b&gt;.wav" in u  # HTML kaçırılır
+
+
+def test_gorunum_cikti_basarili(tmp_path):
+    pytest.importorskip("matplotlib")
+    pytest.importorskip("pyannote.metrics")
+    sonuc = arayuz.gorunum_cikti(_dosya(tmp_path, "ikgcq_028.0-118.0.wav"), "ecapa", 0, 0, None, hat=sahte_hat)
+    uyari, kartlar, png, seg, sure, deg, dogruluk, rttm = sonuc
+    assert len(sonuc) == arayuz.GORUNUM_SAYISI and uyari == ""
+    assert "konuşmacı" in kartlar and "6,0 sn" in kartlar and "(otomatik)" in kartlar
+    assert os.path.isfile(png) and os.path.isfile(rttm) and "<table>" in seg
+    assert "DER" in dogruluk and "(otomatik)" in dogruluk
+
+
+def test_gorunum_cikti_referanssiz_dogruluk_bos(tmp_path):
+    pytest.importorskip("matplotlib")
+    sonuc = arayuz.gorunum_cikti(_dosya(tmp_path, "kayit.wav"), "ecapa", None, None, None, hat=sahte_hat)
+    assert sonuc[0] == "" and sonuc[6] == ""
+
+
+def test_gorunum_cikti_hata_kutusu(tmp_path):
+    sonuc = arayuz.gorunum_cikti(_dosya(tmp_path, "notlar.xyz"), "ecapa", 0, 0, None)
+    assert "kt-hata" in sonuc[0] and "notlar.xyz" in sonuc[0] and sonuc[1:] == ("", None, "", "", "", "", None)
+
+
 def test_arayuz_kurulur():
     pytest.importorskip("gradio")
     demo = arayuz.arayuz_olustur(hat=sahte_hat)
-    assert demo.title == arayuz.BASLIK
+    assert demo.title == arayuz.SAYFA_BASLIGI
+    assert arayuz.tema() is not None and ".kt-kartlar" in arayuz.CSS

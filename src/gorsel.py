@@ -26,11 +26,26 @@ def _kaydet(sekil, png_yolu: str) -> str:
     return png_yolu
 
 
-def _renkler(n: int):
-    import matplotlib
+# matplotlib "tab10" ve "tab20" paletleri (aynı onaltılık değerler); web arayüzü de bunları kullanır.
+TAB10 = ("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f",
+         "#bcbd22", "#17becf")
+TAB20 = ("#1f77b4", "#aec7e8", "#ff7f0e", "#ffbb78", "#2ca02c", "#98df8a", "#d62728", "#ff9896",
+         "#9467bd", "#c5b0d5", "#8c564b", "#c49c94", "#e377c2", "#f7b6d2", "#7f7f7f", "#c7c7c7",
+         "#bcbd22", "#dbdb8d", "#17becf", "#9edae5")
 
-    harita = matplotlib.colormaps["tab10" if n <= 10 else "tab20"]
-    return [harita(i % harita.N) for i in range(n)]
+
+def _renkler(n: int) -> list[str]:
+    palet = TAB10 if n <= 10 else TAB20
+    return [palet[i % len(palet)] for i in range(n)]
+
+
+def renk_haritasi(etiketler) -> dict[str, str]:
+    """{etiket: onaltılık renk}: zaman çizelgesindeki şerit renkleriyle aynı (etiketler sıralanır).
+
+    Yalnızca standart kütüphane; web arayüzü tablolardaki konuşmacı renkleri için kullanır.
+    """
+    sirali = sorted(set(etiketler))
+    return dict(zip(sirali, _renkler(len(sirali))))
 
 
 def zaman_cizelgesi(ref_rttm: str, hyp_rttm: str, png_yolu: str, baslik: str | None = None) -> str:
@@ -62,10 +77,10 @@ def zaman_seritleri(seritler: dict, png_yolu: str, baslik: str | None = None) ->
                                   sharex=True, squeeze=False, gridspec_kw={"height_ratios": satir_sayilari})
     eksenler = list(eksenler[:, 0])
     for ax, (ad, segler) in zip(eksenler, seritler):
-        etiketler = sorted({e for *_, e in segler})
-        renk = _renkler(len(etiketler))
+        renk = renk_haritasi(e for *_, e in segler)
+        etiketler = list(renk)
         for i, e in enumerate(etiketler):
-            ax.broken_barh([(a, b - a) for a, b, l in segler if l == e], (i - 0.4, 0.8), color=renk[i])
+            ax.broken_barh([(a, b - a) for a, b, l in segler if l == e], (i - 0.4, 0.8), color=renk[e])
         ax.set_yticks(range(len(etiketler)), etiketler)
         ax.set_ylim(max(len(etiketler), 1) - 0.5, -0.5)  # ilk konuşmacı üstte
         ax.set_ylabel(f"{ad}\n({len(etiketler)} konuşmacı)")

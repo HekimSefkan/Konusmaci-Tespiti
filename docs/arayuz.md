@@ -292,8 +292,10 @@ mfcc_olcek() -> dict | None
 ```python
 zaman_cizelgesi(ref_rttm: str, hyp_rttm: str, png_yolu: str, baslik: str | None = None) -> str
 zaman_seritleri(seritler: dict[str, list[tuple[float, float, str]]], png_yolu: str, baslik: str | None = None) -> str
+renk_haritasi(etiketler) -> dict[str, str]
 sonuc_grafigi(csv_yolu: str | list[str], png_yolu: str) -> str
 ```
+- `renk_haritasi`: `{etiket: "#rrggbb"}`; etiketler sıralanır ve matplotlib `tab10` (≤ 10 konuşmacı) veya `tab20` paletinden sırayla renk alır (paletler `TAB10`/`TAB20` olarak modülde sabit; matplotlib gerekmez). Zaman çizelgesinin her şeridi bu haritayı kullanır; web arayüzü tablolardaki konuşmacı renklerini de buradan alır, böylece çizelge ve tablo renkleri aynıdır.
 - `zaman_seritleri`: bellekteki segment listelerini `{şerit adı: segmentler}` sırasıyla alt alta çizer (1 veya daha fazla şerit; çizim kuralları `zaman_cizelgesi` ile aynı). `zaman_cizelgesi` bunu `{"Referans", "Sistem"}` ile çağırır; web arayüzü yalnızca `{"Sistem"}` ya da referans verilmişse ikisini çizer. `baslik` boşsa başlık yazılmaz. Hata: `ValueError` (şerit yok).
 - matplotlib fonksiyon içinde import edilir; `pyplot` kullanılmaz, çizim doğrudan Agg tuvaline (`FigureCanvasAgg`) yapılır ve PNG'ye yazılır. Ekranda pencere açılmaz, defterin satır içi arka ucu değişmez. Dönüş: `png_yolu` (klasör yoksa oluşturulur).
 - `zaman_cizelgesi`: aynı kaydın referans ve sistem RTTM'ini alt alta iki şeritte çizer (Hafta 2 Şekil 2 gibi): her şeritte konuşmacı başına bir satır, zaman ekseni saniye ve iki şeritte ortak. Referans ve sistem etiketleri eşleştirilmez; renkler her şeritte kendi içinde atanır. Boş RTTM'de şeritte "konuşma yok" yazar. `baslik` verilmezse referans dosyasının adı. Hata: `FileNotFoundError`, `ValueError` (RTTM bozuk).
@@ -341,10 +343,22 @@ hata_mesaji(dosya: str | None, hata: BaseException) -> str
 ses_yolu_sec(yuklenen: str | None, sunucu_yolu: str | None) -> str | None
 otomatik_referans(ses_yolu: str) -> str | None
 arayuz_cikti(ses_yolu, yontem, konusmaci_sayisi, esik, ref_rttm, sunucu_yolu=None, hat=None) -> tuple   # 7 çıktı
+uyari_html(mesaj: str) -> str                      # kırmızı uyarı kutusu; boş mesajda ""
+kartlar_html(s: Sonuc, ref_notu: str = "") -> str  # konuşmacı, ses süresi, değişim noktası, işlem süresi
+segment_html(segmentler) -> str
+sure_html(segmentler) -> str
+degisim_ciftleri(segmentler) -> list[tuple[float, str, str]]   # (zaman, önceki, yeni)
+degisim_html(segmentler) -> str
+dogruluk_metni(s: Sonuc, ref_notu: str = "") -> str             # referans yoksa ""
+gorunum_cikti(ses_yolu, yontem, konusmaci_sayisi, esik, ref_rttm, sunucu_yolu=None, hat=None) -> tuple  # 8 çıktı
+tema() -> gradio.themes.ThemeClass
 arayuz_olustur(hat=None) -> gradio.Blocks
 ```
+- **Görünüm:** Üstte başlık ve tek cümlelik açıklama; büyük ses yükleme alanı, "Sunucudaki ses yolu" ve "Analiz et" düğmesi; yöntem, konuşmacı sayısı, eşik ve referans RTTM kapalı "Gelişmiş ayarlar" bölümünde (varsayılan ECAPA, otomatik). Sonuçlar: özet kartları, zaman çizelgesi, sekmeler (Segmentler, Konuşmacı süreleri, Değişim noktaları, referans varsa Doğruluk) ve "RTTM indir" düğmesi. Analiz sürerken ilerleme göstergesi; ilk analizde model yükleme notu. Hatalar kırmızı uyarı kutusunda (`uyari_html`). Tema ve CSS gradio 6'da `launch(theme=tema(), css=CSS)` ile verilir (`app.py`).
+- HTML üreticileri (`*_html`) saf fonksiyonlardır, gradio gerektirmez; metinler `html.escape` ile kaçırılır. Konuşmacı renkleri `gorsel.renk_haritasi` ile çizelgeyle aynıdır. `degisim_ciftleri` zamanları `cikti.degisim_noktalari` ile aynıdır (`tek_konusmaci_segmentleri` tanımı).
+- `gorunum_cikti`: arayüz düğmesinin işleyicisi; **istisna fırlatmaz**. Sıra: `(uyarı HTML, kartlar HTML, çizelge PNG, segment HTML, süre HTML, değişim HTML, doğruluk Markdown, RTTM yolu)`. Hata olursa yalnızca uyarı doludur. `arayuz_cikti` aynı işlemi (`_isle`) düz tablolarla verir.
 - **gradio** yalnızca `arayuz_olustur` içinde import edilir; diğer fonksiyonlar gradio ve model olmadan çalışır. `hat`: `(girdi, yontem, konusmaci_sayisi, esik) -> (segmentler, ses_sn)`; verilmezse `main.segmentleri_hesapla` (testlerde sahte hat verilir).
-- `girdileri_denetle`: boş değer (`None`, `""`, NaN) `None` olur. Hata: `ValueError` (konuşmacı sayısı ≥ 1 tam sayı değil; eşik > 0 değil). Eşik boşsa yöntemin `varsayilanlar.json` eşiği kullanılır (`segmentleri_hesapla`).
+- `girdileri_denetle`: boş değer (`None`, `""`, NaN) veya **0 = otomatik** (`None`): konuşmacı sayısı eşikle bulunur, eşik yöntemin `varsayilanlar.json` eşiğidir (`segmentleri_hesapla`). Arayüzdeki alanların varsayılanı 0'dır. Hata: `ValueError` (konuşmacı sayısı negatif veya tam sayı değil; eşik negatif).
 - `analiz`: referans RTTM hat çalışmadan önce okunur (bozuksa `ValueError`, mesajda referans dosyasının adı). Hat süresi ölçülür (`islem_sn`; ilk istekte model yükleme dahildir). `<dosya_id>.rttm` ve `<dosya_id>.png` (`gorsel.zaman_seritleri`) `cikti_dizin`'e (verilmezse geçici klasör) yazılır; `dosya_id` uzantısız ses dosyası adıdır. Referans varsa `degerlendirme._segmentleri_degerlendir(ref, hyp, collar=0.5, tolerans_sn=0.5)`.
 - `Sonuc` alanları: `dosya_id, segmentler, ses_sn, islem_sn, rttm_yolu, png_yolu, referans, metrikler` (referans yoksa son ikisi `None`).
 - `ses_yolu_sec`: "Sunucudaki ses yolu" alanı (ör. Colab'da Drive yolu) doluysa o yol kullanılır, yüklenen dosya yok sayılır; baştaki/sondaki boşluk ve tırnak atılır. Hata: `FileNotFoundError` (yol yok veya klasör), `ValueError` (okunamıyor); mesajda dosya adı ve yol.

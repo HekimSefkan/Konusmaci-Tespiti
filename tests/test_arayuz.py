@@ -48,6 +48,15 @@ SOZLESME = {
         "ses_yolu_sec": ["yuklenen", "sunucu_yolu"],
         "otomatik_referans": ["ses_yolu"],
         "arayuz_cikti": ["ses_yolu", "yontem", "konusmaci_sayisi", "esik", "ref_rttm", "sunucu_yolu", "hat"],
+        "uyari_html": ["mesaj"],
+        "kartlar_html": ["s", "ref_notu"],
+        "segment_html": ["segmentler"],
+        "sure_html": ["segmentler"],
+        "degisim_ciftleri": ["segmentler"],
+        "degisim_html": ["segmentler"],
+        "dogruluk_metni": ["s", "ref_notu"],
+        "gorunum_cikti": ["ses_yolu", "yontem", "konusmaci_sayisi", "esik", "ref_rttm", "sunucu_yolu", "hat"],
+        "tema": [],
         "arayuz_olustur": ["hat"],
     },
     "src.bolme": {
@@ -95,6 +104,7 @@ SOZLESME = {
     "src.gorsel": {
         "zaman_cizelgesi": ["ref_rttm", "hyp_rttm", "png_yolu", "baslik"],
         "zaman_seritleri": ["seritler", "png_yolu", "baslik"],
+        "renk_haritasi": ["etiketler"],
         "sonuc_grafigi": ["csv_yolu", "png_yolu"],
     },
     "src.varsayilanlar": {"yukle": [], "esik": ["yontem"], "mfcc_olcek": []},
