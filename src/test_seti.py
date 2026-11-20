@@ -36,11 +36,19 @@ EN_KOTU_SUTUNLARI = ["kayit", "der", "jer", "f1", "ses_sn", "ref_konusmaci", "si
 # Test listesi
 # ---------------------------------------------------------------------------
 
+def gercek_wav(ad: str) -> bool:
+    """Zip/klasör girdisi gerçek bir WAV mı: macOS'un AppleDouble üst veri dosyaları (`._<ad>.wav`,
+    `__MACOSX/` altı) ses değildir ve sayılmaz (KAIST test zip'inde her WAV için bir tane vardır)."""
+    parcalar = ad.replace("\\", "/").split("/")
+    return (ad.lower().endswith(".wav") and not parcalar[-1].startswith("._")
+            and "__MACOSX" not in parcalar)
+
+
 def zip_kayitlari(zip_yol: str) -> list[str]:
-    """Zip içindeki WAV'ların kayıt kimlikleri (uzantısız dosya adı), sıralı. Sesler okunmaz."""
+    """Zip içindeki WAV'ların kayıt kimlikleri (uzantısız dosya adı), sıralı; AppleDouble dosyaları
+    (`gercek_wav`) atlanır. Sesler okunmaz."""
     with zipfile.ZipFile(zip_yol) as z:
-        return sorted({os.path.splitext(os.path.basename(a))[0] for a in z.namelist()
-                       if a.lower().endswith(".wav")})
+        return sorted({os.path.splitext(os.path.basename(a))[0] for a in z.namelist() if gercek_wav(a)})
 
 
 def rttm_kayitlari(rttm_dizin: str) -> list[str]:
@@ -182,9 +190,10 @@ def zip_hazirla(yerel: str, drive: str | None, adresler, md5_beklenen: str = TES
 
 
 def klasor_wavlari(klasor: str) -> dict[str, str]:
-    """Klasördeki (alt klasörler dahil) WAV'lar: {kayit kimliği: yol}."""
+    """Klasördeki (alt klasörler dahil) WAV'lar: {kayit kimliği: yol}; AppleDouble dosyaları atlanır."""
     return {os.path.splitext(os.path.basename(y))[0]: y
-            for y in sorted(glob.glob(os.path.join(klasor, "**", "*.wav"), recursive=True))}
+            for y in sorted(glob.glob(os.path.join(klasor, "**", "*.wav"), recursive=True))
+            if gercek_wav(os.path.relpath(y, klasor))}
 
 
 def wav_zip_olustur(wavlar: dict[str, str], zip_yolu: str) -> int:

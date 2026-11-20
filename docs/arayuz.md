@@ -473,7 +473,8 @@ class HesapHatasi(ValueError)                      # kullanıcıya gösterilebil
 Defter: `notebooks/test_degerlendirme.ipynb`. Yeni algoritma yoktur; deneyler `toplu.deney_calistir`, hat `main.hat_ayrintili` ile çalışır. **Test setinde hiçbir ayar yapılmaz:** E2/E4 eşikleri, MFCC ölçeği ve E5 eşiği (`e5_esik`) `varsayilanlar.json`'dan, E5 modeli `Hafta4/modeller/degisim_modeli.joblib`'den aynen alınır.
 
 ```python
-zip_kayitlari(zip_yol) -> list[str]                # zip'teki WAV kimlikleri (sesler okunmaz)
+gercek_wav(ad) -> bool                             # macOS AppleDouble (._*.wav, __MACOSX/) ses sayılmaz
+zip_kayitlari(zip_yol) -> list[str]                # zip'teki WAV kimlikleri (sesler okunmaz; AppleDouble atlanır)
 rttm_kayitlari(rttm_dizin) -> list[str]
 eslestir(ses_adlari, rttm_adlari) -> dict          # {"ortak", "yalniz_ses", "yalniz_rttm"}
 test_listesi_yaz(zip_yol, rttm_dizin, liste_yolu) -> dict   # ortak kayıtları listeye yazar

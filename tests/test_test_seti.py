@@ -252,3 +252,23 @@ def test_kaynak_json_ve_ozet(tmp_path):
     test_seti.kaynak_yaz(str(tmp_path), {"kaynak": "https://kaist", "md5": "x", "md5_dogru": True})
     assert "Veri kaynağı: https://kaist | MD5: doğru" in test_seti.kisa_ozet(str(tmp_path))
     assert "uygulanamadı" in test_seti.kaynak_metni({"kaynak": "hf:depo", "md5_dogru": None})
+
+def test_appledouble_dosyalari_ses_sayilmaz(tmp_path):
+    # KAIST test zip'i: her WAV için macOS üst veri dosyası (._<ad>.wav); önceden "yalnız ses 232" görünüyordu
+    zip_yol = tmp_path / "kaist.zip"
+    with zipfile.ZipFile(zip_yol, "w") as z:
+        for ad in ("audio/aaa.wav", "audio/._aaa.wav", "__MACOSX/audio/._bbb.wav", "audio/bbb.wav",
+                   "__MACOSX/audio/ccc.wav"):
+            z.writestr(ad, b"x")
+    assert test_seti.zip_kayitlari(str(zip_yol)) == ["aaa", "bbb"]
+    rttm = tmp_path / "rttm"
+    for k in ("aaa", "bbb"):
+        _rttm(str(rttm), k, [(0.0, 1.0, "spk00")])
+    e = test_seti.test_listesi_yaz(str(zip_yol), str(rttm), str(tmp_path / "liste.txt"))
+    assert e == {"ortak": ["aaa", "bbb"], "yalniz_ses": [], "yalniz_rttm": []}
+    assert not test_seti.gercek_wav("audio/._aaa.wav") and test_seti.gercek_wav("audio/aaa.WAV")
+    klasor = tmp_path / "hf" / "audio" / "test"
+    klasor.mkdir(parents=True)
+    for ad in ("aaa.wav", "._aaa.wav"):
+        (klasor / ad).write_bytes(b"x")
+    assert list(test_seti.klasor_wavlari(str(tmp_path / "hf"))) == ["aaa"]

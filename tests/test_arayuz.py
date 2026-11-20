@@ -55,6 +55,7 @@ SOZLESME = {
         "guncelle": ["kok", "ad", "veri"],
     },
     "src.test_seti": {
+        "gercek_wav": ["ad"],
         "zip_kayitlari": ["zip_yol"],
         "rttm_kayitlari": ["rttm_dizin"],
         "eslestir": ["ses_adlari", "rttm_adlari"],
