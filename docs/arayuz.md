@@ -468,6 +468,33 @@ class HesapHatasi(ValueError)                      # kullanıcıya gösterilebil
 - **Giriş:** hatalı şifre ve kayıtsız e-posta aynı genel mesajı alır (`"E-posta veya şifre hatalı."`; kayıtsız e-postada da scrypt çalışır). Aynı e-postaya `MAKS_DENEME` = 5 hatalı denemeden sonra `KILIT_SN` = 300 sn giriş kapanır (kilitliyken doğru şifre de reddedilir).
 - **Oturum:** `secrets.token_urlsafe(32)` anahtar, yalnızca bellekte, `OTURUM_SN` = 12 saat; süresi dolanlar temizlenir. Sunucu yeniden başlarsa yeniden giriş gerekir.
 
+### 3.19 `src/test_seti.py` (test seti değerlendirmesi ve hız ölçümü)
+
+Defter: `notebooks/test_degerlendirme.ipynb`. Yeni algoritma yoktur; deneyler `toplu.deney_calistir`, hat `main.hat_ayrintili` ile çalışır. **Test setinde hiçbir ayar yapılmaz:** E2/E4 eşikleri, MFCC ölçeği ve E5 eşiği (`e5_esik`) `varsayilanlar.json`'dan, E5 modeli `Hafta4/modeller/degisim_modeli.joblib`'den aynen alınır.
+
+```python
+zip_kayitlari(zip_yol) -> list[str]                # zip'teki WAV kimlikleri (sesler okunmaz)
+rttm_kayitlari(rttm_dizin) -> list[str]
+eslestir(ses_adlari, rttm_adlari) -> dict          # {"ortak", "yalniz_ses", "yalniz_rttm"}
+test_listesi_yaz(zip_yol, rttm_dizin, liste_yolu) -> dict   # ortak kayıtları listeye yazar
+karsilastirma(dev_ozet, test_ozet, deneyler=("E2", "E4", "E5"), dev_ek=None) -> list[dict]
+grup_tablosu(satirlar, sayilar) -> list[dict]      # gruplar 1, 2, 3-4, 5+
+en_kotu(satirlar, n=10, sayilar=None, rttm_klasor=None) -> list[dict]
+tablo_metni(satirlar, sutunlar, basamak=3) -> str
+cihaz_bilgisi() -> dict                            # {"tur": "gpu"|"cpu", "ad", "torch_thread"}
+cihaz_etiketi(bilgi) -> str                        # dosya adı için: gpu_tesla_t4, cpu_...
+hiz_olc(ses_yolu, yontem, tekrar=5, isinma=1, hat=None) -> dict
+hiz_yaz(sonuclar, klasor, bilgi=None) -> str       # hiz_<cihaz>.json
+hiz_tablosu(klasor) -> str                         # tüm hiz_*.json (GPU ve CPU birikir)
+kisa_ozet(sonuc_dizin, eslesme=None, hata_satiri=20, maks_satir=60) -> str
+```
+- `karsilastirma`: `KARSILASTIRMA_SUTUNLARI` = `deney, dev_kayit, dev_der, dev_jer, dev_f1, test_kayit, test_der, test_jer, test_f1`; dev değerleri Hafta 4 `ozet.csv`'den (değerlendirme yarısı, 108 kayıt). `dev_ek={"E5": json}` verilip dosya varsa (Hafta 5 `E5_ayarli_ozet.json`, eşik 0,70) E5'in dev değeri ondan alınır, böylece test ile aynı eşik karşılaştırılır. Eksik değer NaN.
+- `grup_tablosu`: grup = `bolme.grup(referans konuşmacı sayısı)`; her grup için `kayit_sayisi`, `der` (toplam saniyelerden), `jer_ort`, `mikro_f1` (`toplu.ozet_hesapla`) ve `makro_f1` (referansta değişim olan kayıtların F1 ortalaması).
+- `en_kotu`: DER'i NaN olmayan kayıtlar DER'e göre azalan; `ref_konusmaci` ve (RTTM klasörü verilirse) `sistem_konusmaci` ile.
+- `hiz_olc`: `isinma` çalıştırma ölçüme girmez; her ölçümde `main.hat_ayrintili`'nin aşama süreleri (`okuma` = yükleme, `vad`, `oznitelik`, `kumeleme`) ve toplam alınır, medyanları raporlanır. Hedef Hafta 2'den: 90 sn ses ≤ 45 sn, ses süresine orantılı (`hedef_sn = 45 · ses_sn / 90`); `gecti` = medyan toplam ≤ hedef. Modeller ölçümden önce yüklenmelidir (defter yükler).
+- `kisa_ozet`: `sonuc_dizin`'deki `ozet.csv`, `gruplar_E4.csv`, `en_kotu_E4.csv`, `hiz/` ve alt klasörlerdeki `hata_gunlugu.txt` (son `hata_satiri` satır) ile eşleşmeyen kayıt sayısı; en fazla `maks_satir` satır.
+- Defterin Drive düzeni: önbellek `Hafta7/onbellek_test`, sonuçlar `Hafta7/sonuclar/test` (`deneyler/` toplu çıktıları, `ozet.csv`, `gruplar_E4.csv`, `en_kotu_E4.csv`, `deneyler.png`, `hiz/`, `ayarlar.json`, `eslesme.json`, `test_listesi.txt`).
+
 ## 4. Kenar durumlar
 
 - **Kısa dosya / kısa konuşma (1,5 sn'den az):** Hata verilmez. Uyarı yazılır, tüm konuşma tek segment sayılır, tek konuşmacı (`spk00`) atanır, çıkış kodu 0. Bu durumda `main` kümelemeyi hiç çağırmaz; VAD bölgelerinin her biri `spk00` etiketiyle doğrudan segment olur. (Ayrıca `kumele`, `N == 1` için `[0]` döner.)

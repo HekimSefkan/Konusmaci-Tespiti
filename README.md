@@ -34,7 +34,7 @@ Proje kapsamında ses verileri üzerindeki gürültüler temizlenecek, Mel-Freka
 ```bash
 python -m src.main <girdi_ses> -o <cikti.rttm>
 ```
-Varsayılan yöntem **ECAPA**'dır (Hafta 4'te VoxConverse dev değerlendirme yarısında en iyi sonuç). MFCC için `--yontem mfcc` verin. Eşik verilmezse yöntemin eğitim yarısında ayarlanmış eşiği `src/varsayilanlar.json`'dan alınır; `--esik E` veya `--konusmaci-sayisi N` ile değiştirilebilir. Toplu deneyler için `python -m src.toplu` ve `notebooks/hafta4_deneyler.ipynb`.
+Varsayılan yöntem **ECAPA**'dır (Hafta 4'te VoxConverse dev değerlendirme yarısında en iyi sonuç). MFCC için `--yontem mfcc` verin. Eşik verilmezse yöntemin eğitim yarısında ayarlanmış eşiği `src/varsayilanlar.json`'dan alınır; `--esik E` veya `--konusmaci-sayisi N` ile değiştirilebilir. Toplu deneyler için `python -m src.toplu` ve `notebooks/hafta4_deneyler.ipynb`. Hiç kullanılmamış VoxConverse test setinde değerlendirme (E2, E4, E5; ayarlar dev setinden aynen) ve hız ölçümü için `notebooks/test_degerlendirme.ipynb` (Colab).
 Çıkış kodları: 0 başarılı, 1 girdi hatası (bulunamadı/bozuk/desteklenmeyen), 2 iç hata. Modül fonksiyonları ve veri tipleri için bkz. [docs/arayuz.md](docs/arayuz.md); katkı kuralları için [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Arayüzü çalıştırma
