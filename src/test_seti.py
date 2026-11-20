@@ -7,12 +7,15 @@ kısa özet metni hazırlar. torch fonksiyon içinde import edilir; diğer her �
 """
 import csv
 import glob
+import hashlib
 import json
 import math
 import os
 import platform
 import re
+import shutil
 import statistics
+import subprocess
 import time
 import zipfile
 
@@ -58,6 +61,158 @@ def test_listesi_yaz(zip_yol: str, rttm_dizin: str, liste_yolu: str) -> dict[str
     e = eslestir(zip_kayitlari(zip_yol), rttm_kayitlari(rttm_dizin))
     bolme.liste_yaz(e["ortak"], liste_yolu)
     return e
+
+
+# ---------------------------------------------------------------------------
+# Test zip'inin kaynağı: Drive → resmi yansılar (MD5 doğrulamalı) → Hugging Face yansısı
+# ---------------------------------------------------------------------------
+
+TEST_ZIP_MD5 = "834558bbd9b1ffd2d4893181556ceddd"   # KAIST sayfasındaki resmi test WAV zip MD5'i
+KAIST_TEST_ZIP = "https://mm.kaist.ac.kr/datasets/voxconverse/data/voxconverse_test_wav.zip"
+OXFORD_TEST_ZIP = "https://www.robots.ox.ac.uk/~vgg/data/voxconverse/data/voxconverse_test_wav.zip"
+HF_TEST_REPO = "ggfox00000/dia-voxconverse-test"   # son çare: tek tek WAV'lar (audio/test/*.wav)
+_TARAYICI = {"User-Agent": "Mozilla/5.0 (konusmaci-tespiti)"}
+
+
+def md5_dosya(yol: str, blok: int = 8 * 1024 * 1024) -> str:
+    h = hashlib.md5()
+    with open(yol, "rb") as f:
+        for parca in iter(lambda: f.read(blok), b""):
+            h.update(parca)
+    return h.hexdigest()
+
+
+def uzak_kontrol(url: str, zaman_asimi: int = 60) -> dict:
+    """Adrese erişilebiliyor mu: önce HEAD, başarısızsa GET (Range: bytes=0-0).
+
+    Dönüş {"durum": "ok" | "yetkisiz" | "hata", "kod", "boyut", "mesaj"}; GET de 401/403 verirse
+    "yetkisiz" (sıradaki kaynağa geçilir). Boyut Content-Length veya Content-Range'den.
+    """
+    import urllib.error
+    import urllib.request
+
+    son = {"durum": "hata", "kod": None, "boyut": None, "mesaj": ""}
+    for yontem, ek in (("HEAD", {}), ("GET", {"Range": "bytes=0-0"})):
+        try:
+            istek = urllib.request.Request(url, method=yontem, headers={**_TARAYICI, **ek})
+            with urllib.request.urlopen(istek, timeout=zaman_asimi) as r:
+                boyut = r.headers.get("Content-Length")
+                aralik = r.headers.get("Content-Range") or ""
+                if "/" in aralik:
+                    boyut = aralik.rsplit("/", 1)[1]
+                return {"durum": "ok", "kod": getattr(r, "status", None),
+                        "boyut": int(boyut) if boyut and str(boyut).isdigit() else None, "mesaj": yontem}
+        except urllib.error.HTTPError as e:
+            son = {"durum": "yetkisiz" if e.code in (401, 403) else "hata", "kod": e.code, "boyut": None,
+                   "mesaj": f"{yontem}: HTTP {e.code}"}
+        except Exception as e:
+            son = {"durum": "hata", "kod": None, "boyut": None, "mesaj": f"{yontem}: {type(e).__name__}: {e}"}
+    return son
+
+
+def _wget(url: str, hedef: str) -> None:
+    subprocess.run(["wget", "-c", "-q", "--show-progress", "-O", hedef, url], check=True)
+
+
+def zip_hazirla(yerel: str, drive: str | None, adresler, md5_beklenen: str = TEST_ZIP_MD5, indir=None,
+                kontrol=None, log=print) -> dict:
+    """Test zip'ini yerel diske hazırlar; kaynak sırası: önceden doğrulanmış yerel kopya, Drive, adresler.
+
+    Her zip MD5 ile doğrulanır; tutmayan yerel kopya silinir (Drive'daki dosyaya dokunulmaz).
+    Adreslerde önce uzak_kontrol; "ok" değilse (401/403 dahil) sıradakine geçilir. İndirme wget -c ile
+    kaldığı yerden sürer; yarım dosya başka bir adresten geldiyse silinip baştan indirilir.
+    Dönüş {"kaynak": "drive" | adres | None, "md5", "md5_beklenen", "md5_dogru", "boyut", "denemeler"};
+    hiçbir kaynak olmazsa kaynak None (Hugging Face yansısına geçilir).
+    """
+    indir, kontrol = indir or _wget, kontrol or uzak_kontrol
+    os.makedirs(os.path.dirname(yerel) or ".", exist_ok=True)
+    yan, kaynak_dosyasi = yerel + ".md5.json", yerel + ".kaynak"
+    denemeler: list[dict] = []
+    if os.path.isfile(yerel) and os.path.isfile(yan):
+        with open(yan, encoding="utf-8") as f:
+            j = json.load(f)
+        if j.get("md5") == md5_beklenen and j.get("boyut") == os.path.getsize(yerel):
+            log(f"Yerel zip önceden doğrulanmış ({j.get('kaynak')}).")
+            return {**j, "md5_dogru": True, "denemeler": [{"kaynak": "yerel", "durum": "önceden doğrulanmış"}]}
+
+    def dogrula(kaynak: str) -> dict | None:
+        log(f"MD5 hesaplanıyor ({kaynak})...")
+        md5 = md5_dosya(yerel)
+        bilgi = {"kaynak": kaynak, "md5": md5, "md5_beklenen": md5_beklenen, "md5_dogru": md5 == md5_beklenen,
+                 "boyut": os.path.getsize(yerel)}
+        denemeler.append({"kaynak": kaynak, "durum": "md5 doğru" if bilgi["md5_dogru"] else f"md5 yanlış ({md5})"})
+        if bilgi["md5_dogru"]:
+            with open(yan, "w", encoding="utf-8") as f:
+                json.dump(bilgi, f, ensure_ascii=False)
+            return {**bilgi, "denemeler": denemeler}
+        log(f"UYARI: MD5 tutmadı ({kaynak}): {md5}; bu kopya kullanılmıyor.")
+        os.remove(yerel)
+        return None
+
+    if drive and os.path.isfile(drive):
+        log("Drive'daki zip yerel diske kopyalanıyor...")
+        shutil.copyfile(drive, yerel)
+        if (b := dogrula("drive")) is not None:
+            return b
+    else:
+        denemeler.append({"kaynak": "drive", "durum": "yok"})
+    for url in adresler:
+        if not url:
+            continue
+        k = kontrol(url)
+        log(f"{url}: {k['durum']} {k.get('mesaj') or ''}".rstrip())
+        if k["durum"] != "ok":
+            denemeler.append({"kaynak": url, "durum": k["durum"], "kod": k.get("kod"), "mesaj": k.get("mesaj")})
+            continue
+        onceki = open(kaynak_dosyasi, encoding="utf-8").read().strip() if os.path.isfile(kaynak_dosyasi) else ""
+        if os.path.isfile(yerel) and onceki != url:
+            os.remove(yerel)  # başka adresten yarım kalmış dosya; -c ile devam edilmez
+        with open(kaynak_dosyasi, "w", encoding="utf-8") as f:
+            f.write(url)
+        try:
+            log(f"İndiriliyor: {url} (wget -c)")
+            indir(url, yerel)
+        except Exception as e:
+            denemeler.append({"kaynak": url, "durum": "indirme hatası", "mesaj": f"{type(e).__name__}: {e}"})
+            continue
+        if (b := dogrula(url)) is not None:
+            return b
+    return {"kaynak": None, "md5": None, "md5_beklenen": md5_beklenen, "md5_dogru": None, "boyut": None,
+            "denemeler": denemeler}
+
+
+def klasor_wavlari(klasor: str) -> dict[str, str]:
+    """Klasördeki (alt klasörler dahil) WAV'lar: {kayit kimliği: yol}."""
+    return {os.path.splitext(os.path.basename(y))[0]: y
+            for y in sorted(glob.glob(os.path.join(klasor, "**", "*.wav"), recursive=True))}
+
+
+def wav_zip_olustur(wavlar: dict[str, str], zip_yolu: str) -> int:
+    """WAV'ları sıkıştırmadan (ZIP_STORED) audio/<kayit>.wav olarak zip'e toplar (toplu.SesKaynagi okur).
+    Atomik yazılır; yazılan dosya sayısını döndürür."""
+    os.makedirs(os.path.dirname(zip_yolu) or ".", exist_ok=True)
+    gecici = zip_yolu + ".yaziliyor"
+    with zipfile.ZipFile(gecici, "w", compression=zipfile.ZIP_STORED, allowZip64=True) as z:
+        for kayit in sorted(wavlar):
+            z.write(wavlar[kayit], f"audio/{kayit}.wav")
+    os.replace(gecici, zip_yolu)
+    return len(wavlar)
+
+
+def kaynak_yaz(sonuc_dizin: str, bilgi: dict) -> str:
+    """Kullanılan veri kaynağını ve MD5 sonucunu kaynak.json'a yazar; yolu döndürür."""
+    os.makedirs(sonuc_dizin, exist_ok=True)
+    yol = os.path.join(sonuc_dizin, "kaynak.json")
+    with open(yol, "w", encoding="utf-8") as f:
+        json.dump({**bilgi, "tarih": time.strftime("%Y-%m-%dT%H:%M:%S")}, f, ensure_ascii=False, indent=1)
+    return yol
+
+
+def kaynak_metni(bilgi: dict | None) -> str:
+    if not bilgi:
+        return "Veri kaynağı: bilinmiyor"
+    md5 = {True: "doğru", False: "YANLIŞ", None: "uygulanamadı"}[bilgi.get("md5_dogru")]
+    return f"Veri kaynağı: {bilgi.get('kaynak')} | MD5: {md5}"
 
 
 # ---------------------------------------------------------------------------
@@ -264,9 +419,14 @@ def hiz_tablosu(klasor: str) -> str:
 # ---------------------------------------------------------------------------
 
 def kisa_ozet(sonuc_dizin: str, eslesme: dict | None = None, hata_satiri: int = 20, maks_satir: int = 60) -> str:
-    """Defterin son hücresi için en fazla maks_satir satırlık özet: karşılaştırma, grup tablosu,
-    E4 en kötü 10, hız tablosu, eşleşmeyen kayıt sayısı ve varsa hata günlüğünün son satırları."""
+    """Defterin son hücresi için en fazla maks_satir satırlık özet: veri kaynağı ve MD5 (kaynak.json),
+    karşılaştırma, grup tablosu, E4 en kötü 10, hız tablosu, eşleşmeyen kayıt sayısı ve varsa hata
+    günlüğünün son satırları."""
     parcalar = []
+    kaynak_yolu = os.path.join(sonuc_dizin, "kaynak.json")
+    if os.path.isfile(kaynak_yolu):
+        with open(kaynak_yolu, encoding="utf-8") as f:
+            parcalar.append(f"# {kaynak_metni(json.load(f))}")
     oz = _csv_oku(os.path.join(sonuc_dizin, "ozet.csv"))
     if oz:
         sayisal = [{k: (v if k == "deney" else toplu._sayi(v)) for k, v in r.items()} for r in oz]

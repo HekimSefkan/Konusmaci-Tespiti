@@ -144,3 +144,111 @@ def test_kisa_ozet_60_satiri_gecmez(tmp_path):
     assert "hata 49" in m or satirlar[-1].startswith("...")  # hata kuyruğu ya da kesilme notu
     kisa = test_seti.kisa_ozet(str(tmp_path), maks_satir=10)
     assert len(kisa.splitlines()) == 10 and kisa.splitlines()[-1].startswith("...")
+
+
+# --- Test zip'inin kaynağı ------------------------------------------------------------------------
+
+class _Yanit:
+    def __init__(self, basliklar, durum=200):
+        self.headers, self.status = basliklar, durum
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+
+def _http_hata(kod):
+    import urllib.error
+
+    return urllib.error.HTTPError("u", kod, "hata", {}, None)
+
+
+def test_uzak_kontrol_head_basarisizsa_get(monkeypatch):
+    import urllib.request
+
+    cagri = []
+
+    def sahte(istek, timeout=None):
+        cagri.append(istek.get_method())
+        if istek.get_method() == "HEAD":
+            raise _http_hata(401)
+        return _Yanit({"Content-Range": "bytes 0-0/4272764397"}, 206)
+
+    monkeypatch.setattr(urllib.request, "urlopen", sahte)
+    k = test_seti.uzak_kontrol("https://ornek/zip")
+    assert cagri == ["HEAD", "GET"] and k["durum"] == "ok" and k["boyut"] == 4272764397
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda istek, timeout=None: (_ for _ in ()).throw(_http_hata(403)))
+    assert test_seti.uzak_kontrol("https://ornek/zip")["durum"] == "yetkisiz"
+
+    def ag_hatasi(istek, timeout=None):
+        raise OSError("bağlantı yok")
+
+    monkeypatch.setattr(urllib.request, "urlopen", ag_hatasi)
+    assert test_seti.uzak_kontrol("https://ornek/zip")["durum"] == "hata"
+
+
+def test_zip_hazirla_drive_md5_dogru_ve_onbellek(tmp_path):
+    icerik = b"resmi test zip" * 100
+    md5 = __import__("hashlib").md5(icerik).hexdigest()
+    drive = tmp_path / "drive.zip"
+    drive.write_bytes(icerik)
+    yerel = str(tmp_path / "yerel" / "test.zip")
+    b = test_seti.zip_hazirla(yerel, str(drive), ["https://a"], md5, indir=None,
+                              kontrol=lambda u: pytest.fail("adres denenmemeli"), log=lambda *a: None)
+    assert b["kaynak"] == "drive" and b["md5_dogru"] and open(yerel, "rb").read() == icerik
+    b2 = test_seti.zip_hazirla(yerel, None, [], md5, log=lambda *a: None)  # yan dosyadan: yeniden hesaplanmaz
+    assert b2["md5_dogru"] and b2["kaynak"] == "drive"
+
+
+def test_zip_hazirla_kaynak_sirasi(tmp_path):
+    icerik = b"dogru icerik"
+    md5 = __import__("hashlib").md5(icerik).hexdigest()
+    drive = tmp_path / "drive.zip"
+    drive.write_bytes(b"bozuk kopya")
+    yerel = str(tmp_path / "test.zip")
+    with open(yerel + ".kaynak", "w") as f:
+        f.write("https://eski")
+    with open(yerel, "wb") as f:
+        f.write(b"baska adresten yarim")
+    indirilen = []
+
+    def indir(url, hedef):
+        indirilen.append((url, os.path.exists(hedef)))
+        with open(hedef, "wb") as f:
+            f.write(icerik if url == "https://kaist" else b"yanlis")
+
+    durumlar = {"https://oxford": {"durum": "yetkisiz", "kod": 401}, "https://kaist": {"durum": "ok"},
+                "https://yanlis": {"durum": "ok"}}
+    b = test_seti.zip_hazirla(yerel, str(drive), ["https://oxford", "https://yanlis", "https://kaist"], md5,
+                              indir=indir, kontrol=lambda u: durumlar[u], log=lambda *a: None)
+    assert b["kaynak"] == "https://kaist" and b["md5_dogru"]
+    assert drive.read_bytes() == b"bozuk kopya"  # Drive'daki dosyaya dokunulmaz
+    assert [d["durum"] for d in b["denemeler"]][:2] == ["md5 yanlış (" + __import__("hashlib").md5(b"bozuk kopya").hexdigest() + ")", "yetkisiz"]
+    assert indirilen == [("https://yanlis", False), ("https://kaist", False)]  # yarım dosya silindi
+    hic = test_seti.zip_hazirla(str(tmp_path / "yok.zip"), None, ["https://oxford"], md5,
+                                kontrol=lambda u: {"durum": "yetkisiz", "kod": 401}, log=lambda *a: None)
+    assert hic["kaynak"] is None and hic["denemeler"][-1]["durum"] == "yetkisiz"
+
+
+def test_hf_wavlari_zip_olur(tmp_path):
+    klasor = tmp_path / "audio" / "test"
+    klasor.mkdir(parents=True)
+    for ad in ("aaa", "bbb"):
+        (klasor / f"{ad}.wav").write_bytes(b"x")  # içerik ses değil; yalnızca paketleme sınanır
+    wavlar = test_seti.klasor_wavlari(str(tmp_path))
+    assert sorted(wavlar) == ["aaa", "bbb"]
+    zip_yol = str(tmp_path / "hf.zip")
+    assert test_seti.wav_zip_olustur(wavlar, zip_yol) == 2
+    with zipfile.ZipFile(zip_yol) as z:
+        assert z.namelist() == ["audio/aaa.wav", "audio/bbb.wav"]
+        assert all(i.compress_type == zipfile.ZIP_STORED for i in z.infolist())
+    assert test_seti.zip_kayitlari(zip_yol) == ["aaa", "bbb"]
+
+
+def test_kaynak_json_ve_ozet(tmp_path):
+    test_seti.kaynak_yaz(str(tmp_path), {"kaynak": "https://kaist", "md5": "x", "md5_dogru": True})
+    assert "Veri kaynağı: https://kaist | MD5: doğru" in test_seti.kisa_ozet(str(tmp_path))
+    assert "uygulanamadı" in test_seti.kaynak_metni({"kaynak": "hf:depo", "md5_dogru": None})

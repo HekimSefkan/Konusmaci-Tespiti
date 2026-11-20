@@ -477,6 +477,13 @@ zip_kayitlari(zip_yol) -> list[str]                # zip'teki WAV kimlikleri (se
 rttm_kayitlari(rttm_dizin) -> list[str]
 eslestir(ses_adlari, rttm_adlari) -> dict          # {"ortak", "yalniz_ses", "yalniz_rttm"}
 test_listesi_yaz(zip_yol, rttm_dizin, liste_yolu) -> dict   # ortak kayıtları listeye yazar
+md5_dosya(yol, blok=8 MB) -> str
+uzak_kontrol(url, zaman_asimi=60) -> dict          # {"durum": "ok"|"yetkisiz"|"hata", "kod", "boyut", "mesaj"}
+zip_hazirla(yerel, drive, adresler, md5_beklenen=TEST_ZIP_MD5, indir=None, kontrol=None, log=print) -> dict
+klasor_wavlari(klasor) -> dict[str, str]           # {kayit: yol}, alt klasörler dahil
+wav_zip_olustur(wavlar, zip_yolu) -> int           # ZIP_STORED, audio/<kayit>.wav
+kaynak_yaz(sonuc_dizin, bilgi) -> str              # kaynak.json
+kaynak_metni(bilgi) -> str
 karsilastirma(dev_ozet, test_ozet, deneyler=("E2", "E4", "E5"), dev_ek=None) -> list[dict]
 grup_tablosu(satirlar, sayilar) -> list[dict]      # gruplar 1, 2, 3-4, 5+
 en_kotu(satirlar, n=10, sayilar=None, rttm_klasor=None) -> list[dict]
@@ -488,6 +495,7 @@ hiz_yaz(sonuclar, klasor, bilgi=None) -> str       # hiz_<cihaz>.json
 hiz_tablosu(klasor) -> str                         # tüm hiz_*.json (GPU ve CPU birikir)
 kisa_ozet(sonuc_dizin, eslesme=None, hata_satiri=20, maks_satir=60) -> str
 ```
+- **Test zip'inin kaynağı** (`zip_hazirla`): önce önceden doğrulanmış yerel kopya (`<zip>.md5.json`), sonra (1) Drive'daki zip (yerel diske kopyalanıp MD5 doğrulanır), (2) KAIST resmi yansısı (`KAIST_TEST_ZIP`; defterde `KT_TEST_ZIP_URL` ile değiştirilebilir), (3) Oxford (`OXFORD_TEST_ZIP`). Her zip resmi MD5 (`TEST_ZIP_MD5` = `834558bbd9b1ffd2d4893181556ceddd`) ile doğrulanır; tutmayan yerel kopya silinir, Drive'daki dosyaya dokunulmaz. `uzak_kontrol` önce HEAD, başarısızsa GET (`Range: bytes=0-0`) dener; 401/403 → "yetkisiz", sıradaki kaynağa geçilir. İndirme `wget -c` ile sürer; yarım dosya başka adresten geldiyse (`<zip>.kaynak`) silinip baştan indirilir. Hiçbiri olmazsa `kaynak` None döner ve defter (4) Hugging Face yansısına (`HF_TEST_REPO`, `snapshot_download(repo_type="dataset", allow_patterns=["audio/test/*.wav"])`) geçer: WAV adları resmi test RTTM'leriyle eşleştirilir, eksik/fazla raporlanır, WAV'lar `wav_zip_olustur` ile sıkıştırmasız zip'e toplanır (toplu.py zip'ten okur). Etiketler her durumda resmi GitHub `test/` klasöründen. Kullanılan kaynak ve MD5 sonucu `kaynak.json`'a yazılır ve kısa özetin ilk satırında görünür.
 - `karsilastirma`: `KARSILASTIRMA_SUTUNLARI` = `deney, dev_kayit, dev_der, dev_jer, dev_f1, test_kayit, test_der, test_jer, test_f1`; dev değerleri Hafta 4 `ozet.csv`'den (değerlendirme yarısı, 108 kayıt). `dev_ek={"E5": json}` verilip dosya varsa (Hafta 5 `E5_ayarli_ozet.json`, eşik 0,70) E5'in dev değeri ondan alınır, böylece test ile aynı eşik karşılaştırılır. Eksik değer NaN.
 - `grup_tablosu`: grup = `bolme.grup(referans konuşmacı sayısı)`; her grup için `kayit_sayisi`, `der` (toplam saniyelerden), `jer_ort`, `mikro_f1` (`toplu.ozet_hesapla`) ve `makro_f1` (referansta değişim olan kayıtların F1 ortalaması).
 - `en_kotu`: DER'i NaN olmayan kayıtlar DER'e göre azalan; `ref_konusmaci` ve (RTTM klasörü verilirse) `sistem_konusmaci` ile.
