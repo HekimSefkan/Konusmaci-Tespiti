@@ -1,0 +1,35 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: speaker-diarization-web:week8
+    init: true
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${KT_WEB_PORT:-8765}:7860"
+    environment:
+      KT_KULLANICI_DB: /var/lib/kt/kullanicilar.json
+      KT_KAYIT_ACIK: ${KT_KAYIT_ACIK:-1}
+      KT_GECMIS_DIZIN: /var/lib/kt/gecmis
+      KT_MODEL_ONBELLEK: /var/lib/kt/models/ecapa
+      KT_ECAPA_CPU_THREADS: ${KT_ECAPA_CPU_THREADS:-4}
+      KT_ECAPA_CPU_INTEROP_THREADS: ${KT_ECAPA_CPU_INTEROP_THREADS:-1}
+      KT_GOOGLE_CLIENT_ID: ${KT_GOOGLE_CLIENT_ID:-}
+      KT_GOOGLE_CLIENT_SECRET: ${KT_GOOGLE_CLIENT_SECRET:-}
+      KT_PUBLIC_URL: ${KT_PUBLIC_URL:-}
+      KT_SESSION_SECRET: ${KT_SESSION_SECRET:-}
+    volumes:
+      - kt_state:/var/lib/kt
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:7860/', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  kt_state:

@@ -21,6 +21,51 @@ VARSAYILAN_ONBELLEK = os.path.join(os.path.expanduser("~"), ".cache", "konusmaci
 ECAPA_TOPLU = 32  # bir seferde işlenen pencere sayısı
 
 _ecapa = None
+_cpu_yapilandirildi = False
+
+
+def cpu_yapilandir() -> dict | None:
+    """Apply opt-in CPU thread settings once, during process startup.
+
+    ``silero_vad`` sets PyTorch intra-op threads to one when imported. Import it
+    first, then apply ``KT_ECAPA_CPU_THREADS`` so ECAPA can use the requested
+    CPU parallelism. Optional ``KT_ECAPA_CPU_INTEROP_THREADS`` sets PyTorch's
+    inter-op count. Call before serving requests; this changes process-global
+    PyTorch settings. With neither variable set, this function is a no-op.
+    """
+    global _cpu_yapilandirildi
+    if _cpu_yapilandirildi:
+        return None
+    thread_text = os.environ.get("KT_ECAPA_CPU_THREADS")
+    interop_text = os.environ.get("KT_ECAPA_CPU_INTEROP_THREADS")
+    if thread_text is None and interop_text is None:
+        return None
+
+    def pozitif_tamsayi(ortam, deger):
+        try:
+            sayi = int(deger)
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"{ortam} pozitif tam sayı olmalı: {deger!r}") from e
+        if sayi < 1:
+            raise ValueError(f"{ortam} pozitif tam sayı olmalı: {deger!r}")
+        return sayi
+
+    is_parcasi = pozitif_tamsayi("KT_ECAPA_CPU_THREADS", thread_text) if thread_text is not None else None
+    is_arasi = pozitif_tamsayi("KT_ECAPA_CPU_INTEROP_THREADS", interop_text) if interop_text is not None else None
+    import torch
+
+    if torch.cuda.is_available():
+        return None
+
+    # This import resets intra-op threads to 1; apply settings only after it.
+    import silero_vad  # noqa: F401
+
+    if is_parcasi is not None:
+        torch.set_num_threads(is_parcasi)
+    if is_arasi is not None:
+        torch.set_num_interop_threads(is_arasi)
+    _cpu_yapilandirildi = True
+    return {"threads": torch.get_num_threads(), "interop_threads": torch.get_num_interop_threads()}
 
 
 def pencerele(
