@@ -32,10 +32,14 @@ Proje kapsamında ses verileri üzerindeki gürültüler temizlenecek, Mel-Freka
 
 ## Kullanım
 ```bash
-python -m src.main <girdi_ses> -o <cikti.rttm>
+python -m src.main <girdi_ses> -o <cikti.rttm> [--yontem ecapa|mfcc] [--konusmaci-sayisi N] [--esik E] [--min-destek-pencere N] [--maks-sure SN]
 ```
 Varsayılan yöntem **ECAPA**'dır (Hafta 4'te VoxConverse dev değerlendirme yarısında en iyi sonuç). MFCC için `--yontem mfcc` verin. Eşik verilmezse yöntemin eğitim yarısında ayarlanmış eşiği `src/varsayilanlar.json`'dan alınır; `--esik E` veya `--konusmaci-sayisi N` ile değiştirilebilir. Toplu deneyler için `python -m src.toplu` ve `notebooks/hafta4_deneyler.ipynb`. Hiç kullanılmamış VoxConverse test setinde değerlendirme (E2, E4, E5; ayarlar dev setinden aynen) ve hız ölçümü için `notebooks/test_degerlendirme.ipynb` (Colab).
-Çıkış kodları: 0 başarılı, 1 girdi hatası (bulunamadı/bozuk/desteklenmeyen), 2 iç hata. Modül fonksiyonları ve veri tipleri için bkz. [docs/arayuz.md](docs/arayuz.md); katkı kuralları için [CONTRIBUTING.md](CONTRIBUTING.md).
+`--min-destek-pencere N`, yalnızca otomatik konuşmacı sayısı kipinde en çok N pencereye dayanan küçük kümeleri, en yakın ana kümenin merkezi AHC eşiği içindeyse birleştirir; varsayılan 0 ile kapalıdır. `--maks-sure SN` en uzun girdi süresini belirler; 0 sınırsızdır. Çıkış kodları: 0 başarılı, 1 girdi hatası (bulunamadı/bozuk/desteklenmeyen), 2 iç hata. Modül fonksiyonları ve veri tipleri için bkz. [docs/arayuz.md](docs/arayuz.md); katkı kuralları için [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## CPU iş parçacıkları
+
+ECAPA CPU iş parçacıklarını isteğe bağlı ayarlamak için `KT_ECAPA_CPU_THREADS` ve `KT_ECAPA_CPU_INTEROP_THREADS` ortam değişkenlerini `python app.py` veya `python -m src.main` önüne koyabilirsiniz. Örneğin `KT_ECAPA_CPU_THREADS=4 KT_ECAPA_CPU_INTEROP_THREADS=1 python app.py`; ikisi de ayarlanmamışsa uygulamanın mevcut davranışı sürer; Silero içe aktarımı CPU iş parçacığı sayısını 1'e ayarlayabilir. CUDA kullanılabilir olduğunda bu ayarlar uygulanmaz. Docker Compose CPU kipinde 4/1 değerlerini verir; `.env` ile değiştirebilirsiniz.
 
 ## Arayüzü çalıştırma
 
@@ -48,7 +52,7 @@ Gradio web arayüzü ses dosyasını (WAV, MP3, FLAC; en fazla 1800 sn) hattan g
 ```bash
 python app.py
 ```
-http://127.0.0.1:7860 adresinde açılır (`--port` ile değiştirilebilir). `--share` Gradio'nun genel geçici bağlantısını da üretir. Kurulum için aşağıdaki "Kurulum" bölümüne bakın; `gradio` ve `plotly` `requirements.txt`'tedir.
+Varsayılan olarak yalnızca `http://127.0.0.1:7860` adresinde yerel çalışır (`--port` ile değiştirilebilir). `--share` isteğe bağlı olarak süreç çalıştığı sürece geçerli genel, geçici bir Gradio bağlantısı üretir; sabit web adresi veya dağıtım sağlamaz. Sabit genel adres için ayrıca host, alan adı ve HTTPS ters vekil yapılandırılmalıdır. Kurulum için aşağıdaki "Kurulum" bölümüne bakın; `gradio` ve `plotly` `requirements.txt`'tedir.
 
 **Kullanım akışı:**
 1. Açılışta **Kayıt ol** (ad, e-posta, en az 8 karakterlik şifre) veya **Giriş yap**. Oturum tarayıcıda tutulur; sayfa yenilense de açık kalır, **Çıkış** ile kapanır.
@@ -65,6 +69,10 @@ http://127.0.0.1:7860 adresinde açılır (`--port` ile değiştirilebilir). `--
 | `KT_GECMIS_DIZIN` | Analiz geçmişi; her kullanıcının kayıtları kendi alt klasöründe (`sonuc.json`, RTTM, 50 MB altıysa ses kopyası). Yoksa geçmiş kapalı. |
 
 Güvenlik: aynı e-postaya 5 hatalı girişten sonra 5 dk bekleme; her işlem önce oturumu sunucuda doğrular; API sayfası ve istemci erişimi kapalıdır. Arayüz mantığı `src/arayuz.py`, hesaplar `src/hesap.py`, geçmiş `src/gecmis.py`, etkileşimli çizimler `src/gorsel_etkilesimli.py`'dedir (ayrıntı: [docs/arayuz.md](docs/arayuz.md) 3.15–3.18).
+
+### Hafta 8: Docker ve Google OIDC
+
+Yerel ve Docker kullanımı varsayılan olarak loopback ile sınırlıdır. Yerel Gradio arayüzünde `--share` isteğe bağlı geçici bir genel bağlantı üretir; sabit public host henüz seçilmedi. İsteğe bağlı Google OIDC girişi için kararlı HTTPS URL ve Google OAuth ayarları gerekir; bunlar sağlanana kadar yerel e-posta/şifre girişi kullanılır. Sırlar repoya eklenmez. Ayrıntılar için [Hafta 8 dağıtım notlarına](docs/hafta8-web-deployment.md) bakın.
 
 ## Kurulum
 

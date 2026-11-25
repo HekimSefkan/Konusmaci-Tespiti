@@ -44,5 +44,9 @@ gradio==6.17.3
 # plotly 7.x plotly.js 4'u hedefler, bu yuzden secilmedi.
 plotly==6.9.0
 
+# --- Opt-in external identity provider (app.py --google-auth) ---
+Authlib==1.9.10
+itsdangerous==2.2.0
+
 # --- Test ---
 pytest==9.1.1

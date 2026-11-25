@@ -1025,6 +1025,16 @@ def varsayilan_uygulama(hat=None) -> Uygulama:
 
 
 def arayuz_olustur(hat=None, uygulama: Uygulama | None = None):
+    """Build the existing email/password Gradio interface."""
+    return _arayuz_olustur(hat, uygulama, google_mode=False)
+
+
+def google_arayuz_olustur(uygulama: Uygulama):
+    """Build the same analysis interface with its login controls reserved for OIDC mode."""
+    return _arayuz_olustur(None, uygulama, google_mode=True)
+
+
+def _arayuz_olustur(hat=None, uygulama: Uygulama | None = None, *, google_mode: bool = False):
     """Gradio Blocks arayüzünü kurar (başlatmaz). Başlatma: app.py; tema ve CSS
     launch(theme=tema(), css=CSS) ile verilir.
 
@@ -1054,6 +1064,9 @@ def arayuz_olustur(hat=None, uygulama: Uygulama | None = None):
         return gr.Row(elem_classes=[] if acik else [GIZLI_SINIF])
     baslik_html = f'<div class="kt-ust"><h1>{BASLIK}</h1><p>{html.escape(ACIKLAMA)}</p></div>'
 
+    if google_mode:
+        from .google_auth import SESSION_COOKIE, google_login_html, google_logout_html
+
     with gr.Blocks(title=SAYFA_BASLIGI) as demo:
         oturum = gr.BrowserState(None, storage_key="kt_oturum")
         veri_d, ses_d, secili_seg, secili_kayit = gr.State(None), gr.State(None), gr.State(None), gr.State(None)
@@ -1063,19 +1076,23 @@ def arayuz_olustur(hat=None, uygulama: Uygulama | None = None):
             gr.HTML(baslik_html)
             gr.Markdown(TANITIM, elem_classes="kt-tanitim")
             with gr.Column(elem_id="kt-giris-kart"):
-                with gr.Tabs():
-                    with gr.Tab("Giriş yap"):
-                        g_eposta = gr.Textbox(label="E-posta", type="email")
-                        g_sifre = gr.Textbox(label="Şifre", type="password")
-                        g_dugme = gr.Button("Giriş yap", variant="primary")
-                        giris_notu = gr.Markdown()
-                    with gr.Tab("Kayıt ol", visible=hesap.kayit_acik()):
-                        k_ad = gr.Textbox(label="Ad")
-                        k_eposta = gr.Textbox(label="E-posta", type="email")
-                        k_sifre = gr.Textbox(label=f"Şifre (en az {hesap.MIN_SIFRE} karakter)", type="password")
-                        k_tekrar = gr.Textbox(label="Şifre (tekrar)", type="password")
-                        k_dugme = gr.Button("Kayıt ol", variant="primary")
-                        kayit_notu = gr.Markdown()
+                if google_mode:
+                    gr.HTML(google_login_html())
+                    giris_notu = gr.Markdown()
+                else:
+                    with gr.Tabs():
+                        with gr.Tab("Giriş yap"):
+                            g_eposta = gr.Textbox(label="E-posta", type="email")
+                            g_sifre = gr.Textbox(label="Şifre", type="password")
+                            g_dugme = gr.Button("Giriş yap", variant="primary")
+                            giris_notu = gr.Markdown()
+                        with gr.Tab("Kayıt ol", visible=hesap.kayit_acik()):
+                            k_ad = gr.Textbox(label="Ad")
+                            k_eposta = gr.Textbox(label="E-posta", type="email")
+                            k_sifre = gr.Textbox(label=f"Şifre (en az {hesap.MIN_SIFRE} karakter)", type="password")
+                            k_tekrar = gr.Textbox(label="Şifre (tekrar)", type="password")
+                            k_dugme = gr.Button("Kayıt ol", variant="primary")
+                            kayit_notu = gr.Markdown()
 
         # --- Uygulama ---------------------------------------------------------------------
         with gr.Column(elem_classes=[GIZLI_SINIF]) as uygulama_ekrani:
@@ -1086,7 +1103,10 @@ def arayuz_olustur(hat=None, uygulama: Uygulama | None = None):
                     mod = gr.Radio(choices=list(MODLAR), value=MODLAR[0], show_label=False, container=False,
                                    elem_id="kt-mod", min_width=180)
                     kullanici_md = gr.Markdown(elem_classes="kt-kullanici")
-                    cikis = gr.Button("Çıkış", size="sm", min_width=80)
+                    if google_mode:
+                        cikis = gr.HTML(google_logout_html())
+                    else:
+                        cikis = gr.Button("Çıkış", size="sm", min_width=80)
             with gr.Tabs(selected="analiz") as ust:
                 with gr.Tab("Analiz", id="analiz"):
                     with gr.Row(equal_height=False):
@@ -1201,7 +1221,12 @@ def arayuz_olustur(hat=None, uygulama: Uygulama | None = None):
             return (sutun(True), veri.get("oynat_yolu"), *indirmeler(veri))
 
         # --- İşleyiciler (hepsi önce oturumu doğrular) ------------------------------------
-        def acilis(anahtar):
+        def acilis(anahtar, request: gr.Request = None):
+            if google_mode:
+                sid = request.cookies.get(SESSION_COOKIE) if request else None
+                anahtar = app.depo.oturum_ac(sid, sid) if sid else None
+                k = app.depo.kullanici(anahtar) if anahtar else None
+                return uygulama_goster(anahtar, k) if k else giris_goster()
             k = app.depo.kullanici(anahtar)
             return uygulama_goster(anahtar, k) if k else ayni()  # oturum yoksa ekran zaten giriş
 
@@ -1319,13 +1344,14 @@ def arayuz_olustur(hat=None, uygulama: Uygulama | None = None):
 
         # --- Olaylar (hepsi API'ye kapalı) -------------------------------------------------
         demo.load(acilis, inputs=oturum, outputs=ekran, api_visibility=gizli)
-        g_dugme.click(giris_yap, inputs=[g_eposta, g_sifre], outputs=[*ekran, g_sifre], api_visibility=gizli)
-        g_sifre.submit(giris_yap, inputs=[g_eposta, g_sifre], outputs=[*ekran, g_sifre], api_visibility=gizli)
-        k_dugme.click(kayit_ol, inputs=[k_ad, k_eposta, k_sifre, k_tekrar],
-                      outputs=[*ekran, kayit_notu, k_sifre, k_tekrar], api_visibility=gizli)
-        cikis.click(cikis_yap, inputs=oturum,
-                    outputs=[*ekran, veri_d, ses_d, uyari, *sabit, *icerik, gecmis_df, secili_kayit, gecmis_notu],
-                    api_visibility=gizli)
+        if not google_mode:
+            g_dugme.click(giris_yap, inputs=[g_eposta, g_sifre], outputs=[*ekran, g_sifre], api_visibility=gizli)
+            g_sifre.submit(giris_yap, inputs=[g_eposta, g_sifre], outputs=[*ekran, g_sifre], api_visibility=gizli)
+            k_dugme.click(kayit_ol, inputs=[k_ad, k_eposta, k_sifre, k_tekrar],
+                          outputs=[*ekran, kayit_notu, k_sifre, k_tekrar], api_visibility=gizli)
+            cikis.click(cikis_yap, inputs=oturum,
+                        outputs=[*ekran, veri_d, ses_d, uyari, *sabit, *icerik, gecmis_df, secili_kayit, gecmis_notu],
+                        api_visibility=gizli)
         dugme.click(calistir, inputs=[oturum, ses, sunucu, yontem, konusmaci, esik, ref, mod],
                     outputs=[*ekran, uyari, veri_d, ses_d, *sabit, *icerik], api_visibility=gizli,
                     show_progress="full")
